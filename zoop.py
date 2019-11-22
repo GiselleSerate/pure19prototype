@@ -17,6 +17,6 @@ client.connect(HOSTNAME, port=HOSTPORT, username=USERNAME, key_filename=os.path.
 stdin, stdout, stderr = client.exec_command('ls -l')
 # These are now all files and you can treat them as such; do fancy regex stuff or whatever
 for line in stdout:
-	print(f"Here's a line: {line}")
+    print(f"Here's a line: {line}")
 # Make sure you kill the connection when you're done
 client.close()

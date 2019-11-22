@@ -58,10 +58,13 @@ if __name__ == "__main__":
         print(f"proto:{proto} recv_q:{recv_q} send_q:{send_q} local:{local} foreign:{foreign} state:{state} pid:{pid} progname:{progname}")
 
     # GET RUNNING PROCS
-    # stdin, stdout, stderr = client.exec_command('ps -ao pid,cmd | grep -v \\ps -ao pid,cmd\\')
+    # Normally we'd have to grep out the command we ran, but we don't have to because ssh. 
     # stdin, stdout, stderr = client.exec_command('ps -ao pid,cmd')
-    stdin, stdout, stderr = client.exec_command('ps -aux')
+    stdin, stdout, stderr = client.exec_command('ps -eo pid,cmd')
+    # stdin, stdout, stderr = client.exec_command('ps -aux')
     for line in stdout:
+        if not re.match(r'[0-9]+', line.split()[0]):
+            continue
         print(line.rstrip())
 
     # Make sure you kill the connection when you're done

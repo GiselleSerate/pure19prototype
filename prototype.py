@@ -34,13 +34,10 @@ if __name__ == "__main__":
     # GET PACKAGES
     # packages = [] # lol we aren't actually using this line are we
     if operating_sys == 'centos':
-        stdin, stdout, stderr = client.exec_command('yum list installed')
+        stdin, stdout, stderr = client.exec_command("rpm -qa --queryformat '%{NAME}\n'")
         for line in stdout:
-            # Skip not-data
-            if not re.match(r'.+ +.+ +@[A-Za-z]+', line):
-                continue
-            pkg, ver, src = line.split()
-            print(f"pkg:{pkg} ver:{ver} src:{src}")
+            pkg = line.strip()
+            print(pkg)
     else:
         raise Exception(f"Unsupported operating system {operating_sys}: we don't know what package manager you're using.")
 

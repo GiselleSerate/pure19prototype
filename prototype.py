@@ -1,8 +1,11 @@
 # Proof of concept: here's a pretty basic thing to say "we can actually get stuff over SSH"
 
+import os
 import re
+import tempfile
 
 from paramiko import SSHClient
+# from tempfile import mkdtemp
 
 
 
@@ -24,6 +27,8 @@ class SystemAnalyzer:
         self.operating_sys = None
         self.version = None
         self.packages = []
+
+        self.dir = tempfile.mkdtemp()
 
     def __del__(self):
         # Make sure you kill the connection when you're done
@@ -77,6 +82,11 @@ class SystemAnalyzer:
                 continue
             print(line.rstrip())
 
+    def dockerize(self):
+        with open(os.path.join(self.dir, 'Dockerfile'), 'w') as dockerfile:
+            dockerfile.write(f"FROM {self.operating_sys}:{self.version}")
+        print(f"Your Dockerfile is in {self.dir}")
+
 
 
 if __name__ == "__main__":
@@ -85,3 +95,4 @@ if __name__ == "__main__":
     kowalski.get_packages()
     kowalski.get_ports()
     kowalski.get_procs()
+    kowalski.dockerize()

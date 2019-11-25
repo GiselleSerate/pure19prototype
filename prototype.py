@@ -59,6 +59,13 @@ class SystemAnalyzer:
         else:
             raise Exception(f"Unsupported operating system {operating_sys}: we don't know what package manager you're using.")
 
+    def get_dependencies(self):
+        print("Getting dependencies...")
+        for package in self.packages: # TODO: when you merge in the version_nums branch, make sure you fix this line
+            # Issue--/bin/sh doesn't look like a package to me. what do we do about that?
+            _, stdout, stderr = self.client.exec_command(f"rpm -qR {package}")
+            print(f"{package} > {[line.strip() for line in stdout]}")
+
     def get_ports(self):
         # TODO: How do I know I'm not getting my own port that I'm using for ssh? Is it just literally port 22?
         # What if we try to run this on something that uses 22?
@@ -93,6 +100,7 @@ if __name__ == "__main__":
     kowalski = SystemAnalyzer(hostname=HOSTNAME, port=PORT, username=USERNAME)
     kowalski.get_os()
     kowalski.get_packages()
+    kowalski.get_dependencies()
     kowalski.get_ports()
     kowalski.get_procs()
     kowalski.dockerize()

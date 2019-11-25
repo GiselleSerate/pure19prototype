@@ -53,8 +53,8 @@ class SystemAnalyzer:
             print("No operating system yet.")
             self.get_os()
         if self.operating_sys == 'centos':
-            stdin, stdout, stderr = self.client.exec_command("rpm -qa --queryformat '%{NAME}\n'")
-            self.packages = [line.strip() for line in stdout]
+            stdin, stdout, stderr = self.client.exec_command("rpm -qa --queryformat '%{NAME} %{VERSION}\n'")
+            self.packages = [line.strip().split()[0], line.strip().split()[1] for line in stdout]
             print(self.packages)
         else:
             raise Exception(f"Unsupported operating system {operating_sys}: we don't know what package manager you're using.")
@@ -85,6 +85,8 @@ class SystemAnalyzer:
     def dockerize(self):
         with open(os.path.join(self.dir, 'Dockerfile'), 'w') as dockerfile:
             dockerfile.write(f"FROM {self.operating_sys}:{self.version}")
+	    for pkg_name, version in self.packages:
+		dockerfile.write(f"RUN rpm -i {pkg_name}:{version}")
         print(f"Your Dockerfile is in {self.dir}")
 
 

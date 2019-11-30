@@ -86,7 +86,7 @@ class SystemAnalyzer:
         with open(os.path.join(self.dir, 'Dockerfile'), 'w') as dockerfile:
             dockerfile.write(f"FROM {self.operating_sys}:{self.version}\n")
             for pkg_name, version in self.packages:
-                dockerfile.write(f"RUN rpm -i {pkg_name}:{version}\n")
+                dockerfile.write(f"RUN yum -y install {pkg_name}-{version}\n")
         print(f"Your Dockerfile is in {self.dir}")
 
 

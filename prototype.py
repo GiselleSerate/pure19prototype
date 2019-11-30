@@ -28,7 +28,8 @@ class SystemAnalyzer:
 
         self.operating_sys = None
         self.version = None
-        self.packages = []
+        self.packages = set()
+        self.filtered_packages = set()
 
         self.dir = tempfile.mkdtemp()
 
@@ -56,7 +57,7 @@ class SystemAnalyzer:
             self.get_os()
         if self.operating_sys == 'centos':
             stdin, stdout, stderr = self.client.exec_command("rpm -qa --queryformat '%{NAME}\n'")
-            self.packages = [line.strip() for line in stdout]
+            self.packages = {line.strip() for line in stdout}
             print(self.packages)
         else:
             raise Exception(f"Unsupported operating system {operating_sys}: we don't know what package manager you're using.")
@@ -66,7 +67,7 @@ class SystemAnalyzer:
         # Issue--/bin/sh doesn't look like a package to me. what do we do about that?
         _, stdout, stderr = self.client.exec_command(f"rpm -qR {package}")
         # print(f"{package} > {[line.strip() for line in stdout]}")
-        return set([line.strip() for line in stdout])
+        return {line.strip() for line in stdout}
 
     def get_ports(self):
         # TODO: How do I know I'm not getting my own port that I'm using for ssh? Is it just literally port 22?

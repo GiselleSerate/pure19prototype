@@ -66,8 +66,11 @@ class SystemAnalyzer:
         # print(f"Getting dependencies for {package}...")
         # Issue--/bin/sh doesn't look like a package to me. what do we do about that?
         _, stdout, stderr = self.client.exec_command(f"rpm -qR {package}")
-        # print(f"{package} > {[line.strip() for line in stdout]}")
-        return {line.strip() for line in stdout}
+        # I have no idea which regex is correct--one takes me from 420 to 256 and the other goes to 311
+        deps = [re.split('\W+', line.strip())[0] for line in stdout]
+        # deps = [line.strip() for line in stdout]
+        print(f"{package} > {deps}")
+        return deps
 
     def get_ports(self):
         # TODO: How do I know I'm not getting my own port that I'm using for ssh? Is it just literally port 22?

@@ -7,6 +7,8 @@ import tempfile
 from paramiko import SSHClient
 # from tempfile import mkdtemp
 
+from dependencygraph import filter_non_dependencies
+
 
 
 # Constants (which we can move into a config file later)
@@ -59,12 +61,12 @@ class SystemAnalyzer:
         else:
             raise Exception(f"Unsupported operating system {operating_sys}: we don't know what package manager you're using.")
 
-    def get_dependencies(self):
-        print("Getting dependencies...")
-        for package in self.packages: # TODO: when you merge in the version_nums branch, make sure you fix this line
-            # Issue--/bin/sh doesn't look like a package to me. what do we do about that?
-            _, stdout, stderr = self.client.exec_command(f"rpm -qR {package}")
-            print(f"{package} > {[line.strip() for line in stdout]}")
+    def get_dependencies(self, package):
+        print(f"Getting dependencies for {package}...")
+        # Issue--/bin/sh doesn't look like a package to me. what do we do about that?
+        _, stdout, stderr = self.client.exec_command(f"rpm -qR {package}")
+        print(f"{package} > {[line.strip() for line in stdout]}")
+        return set([line.strip() for line in stdout])
 
     def get_ports(self):
         # TODO: How do I know I'm not getting my own port that I'm using for ssh? Is it just literally port 22?
@@ -88,6 +90,14 @@ class SystemAnalyzer:
             if not re.match(r'[0-9]+', line.split()[0]):
                 continue
             print(line.rstrip())
+
+    def filter_packages(self):
+        '''
+        Get a filtered list of packages after figuring out dependencies.
+        TODO: in future you can get the base image figured out and not install those packages.
+        '''
+        self.filtered_packages = filter_non_dependencies(self.packages, self.get_dependencies)
+        print(f"Filter by dependency cut down {len(self.packages)} packages to {len(self.filtered_packages)}")
 
     def dockerize(self):
         with open(os.path.join(self.dir, 'Dockerfile'), 'w') as dockerfile:

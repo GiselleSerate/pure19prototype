@@ -1,4 +1,4 @@
-from dependencygraph import filter_non_dependencies
+from src.dependencygraph import filter_non_dependencies
 
 def test_basic_dependency():
     '''

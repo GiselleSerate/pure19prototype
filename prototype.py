@@ -62,10 +62,10 @@ class SystemAnalyzer:
             raise Exception(f"Unsupported operating system {operating_sys}: we don't know what package manager you're using.")
 
     def get_dependencies(self, package):
-        print(f"Getting dependencies for {package}...")
+        # print(f"Getting dependencies for {package}...")
         # Issue--/bin/sh doesn't look like a package to me. what do we do about that?
         _, stdout, stderr = self.client.exec_command(f"rpm -qR {package}")
-        print(f"{package} > {[line.strip() for line in stdout]}")
+        # print(f"{package} > {[line.strip() for line in stdout]}")
         return set([line.strip() for line in stdout])
 
     def get_ports(self):
@@ -110,7 +110,8 @@ if __name__ == "__main__":
     kowalski = SystemAnalyzer(hostname=HOSTNAME, port=PORT, username=USERNAME)
     kowalski.get_os()
     kowalski.get_packages()
-    kowalski.get_dependencies()
+    # kowalski.get_dependencies()
+    kowalski.filter_packages()
     kowalski.get_ports()
     kowalski.get_procs()
     kowalski.dockerize()

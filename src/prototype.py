@@ -85,8 +85,8 @@ class SystemAnalyzer:
         # Issue--/bin/sh doesn't look like a package to me. what do we do about that?
         _, stdout, stderr = self.client.exec_command(f"rpm -qR {package}")
         # I have no idea which regex is correct--one takes me from 420 to 256 and the other goes to 311
-        deps = [re.split('\W+', line.strip())[0] for line in stdout]
-        # deps = [line.strip() for line in stdout]
+        # deps = [re.split('\W+', line.strip())[0] for line in stdout]
+        deps = {line.strip() for line in stdout}
         logging.debug(f"{package} > {deps}")
         return deps
 

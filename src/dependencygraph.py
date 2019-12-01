@@ -1,5 +1,5 @@
 __author__ = 'elubin'
-# import logging
+import logging
 import networkx as nx
 
 
@@ -11,7 +11,7 @@ def filter_non_dependencies(nodes, get_deps_func):
     # process the edges based on the dependency function
     for n in G:
         deps = get_deps_func(n)
-        # logging.info('%s depends on %s' % (n, deps))
+        logging.debug(f"{n} depends on {deps}")
         for d in deps:
             if d in G:
                 G.add_edge(n, d)
@@ -29,8 +29,7 @@ def filter_non_dependencies(nodes, get_deps_func):
         # only counts if it was the original list
         nodes = [n for n in g.nodes() if n in node_set]
         if len(nodes) > 0:
-            # logging.debug('Strongly connected component: %s' % repr(nodes))
-            print('Strongly connected component: %s' % repr(nodes))
+            logging.debug(f"Strongly connected component: {repr(nodes)}")
             for n in nodes:
                 filtered_pkgs.add(n)
 

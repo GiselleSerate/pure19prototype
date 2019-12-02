@@ -91,8 +91,8 @@ class SystemAnalyzer:
             logging.warning("No operating system yet.")
             self.get_os()
         if self.operating_sys == 'centos':
-            stdin, stdout, stderr = self.ssh_client.exec_command("rpm -qa --queryformat '%{NAME}\n'")
-            self.packages = {line.strip() for line in stdout}
+            stdin, stdout, stderr = self.ssh_client.exec_command("rpm -qa --queryformat '%{NAME} %{VERSION}\n'")
+            self.packages = {line.strip().split()[0]:line.strip().split()[1] for line in stdout}
             logging.debug(self.packages)
         else:
             raise Exception(f"Unsupported operating system {operating_sys}: we don't know what package manager you're using.")
@@ -143,25 +143,32 @@ class SystemAnalyzer:
             logging.warning("No packages yet.")
             self.get_packages()
 
+        just_packages = set(self.packages.keys())
+
         # Get default-installed packages from Docker base image we're going to use
         pkg_bytestring = self.docker_client.containers.run(f"{self.operating_sys}:{self.version}", "rpm -qa --queryformat '%{NAME}\n'")
         default_packages = set(pkg_bytestring.decode().split('\n'))
-        nondefault_packages = self.packages - default_packages
+        nondefault_packages = just_packages - default_packages
         logging.info(f"Blacklisting defaults cut down {len(self.packages)} packages to {len(nondefault_packages)}")
 
         # Filter packages to exploit dependency relationships
-        self.filtered_packages = filter_non_dependencies(self.packages - default_packages, self.get_dependencies)
+        self.filtered_packages = filter_non_dependencies(just_packages - default_packages, self.get_dependencies)
         logging.info(f"Filtering by dependency further cut down {len(nondefault_packages)} packages to {len(self.filtered_packages)}")
 
         # Determine packages to erase from base image
-        self.extra_packages = default_packages - self.packages
+        self.extra_packages = default_packages - just_packages
+        self.extra_packages = {pkg for pkg in self.extra_packages if pkg != ""}
         logging.info(f"The base image has {len(self.extra_packages)} extraneous packages")
 
 
     def dockerize(self):
         with open(os.path.join(self.dir, 'Dockerfile'), 'w') as dockerfile:
-            dockerfile.write(f"FROM {self.operating_sys}:{self.version}")
-            # TODO: remove self.extra_packages
+            dockerfile.write(f"FROM {self.operating_sys}:{self.version}\n")
+            # TODO come back when you can figure out what ones are important here
+            # for pkg_name in self.extra_packages:
+            #     dockerfile.write(f"RUN yum -y erase {pkg_name}\n")
+            for pkg_name in self.filtered_packages:
+                dockerfile.write(f"RUN yum -y install {pkg_name}-{self.packages[pkg_name]}\n")
         logging.info(f"Your Dockerfile is in {self.dir}")
 
 

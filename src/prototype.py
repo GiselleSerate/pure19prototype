@@ -138,6 +138,7 @@ class SystemAnalyzer:
         '''
         Get a filtered list of packages after figuring out dependencies.
         '''
+        logging.info("Filtering packages...")
         while len(self.packages) == 0:
             logging.warning("No packages yet.")
             self.get_packages()
@@ -152,10 +153,15 @@ class SystemAnalyzer:
         self.filtered_packages = filter_non_dependencies(self.packages - default_packages, self.get_dependencies)
         logging.info(f"Filtering by dependency further cut down {len(nondefault_packages)} packages to {len(self.filtered_packages)}")
 
+        # Determine packages to erase from base image
+        self.extra_packages = default_packages - self.packages
+        logging.info(f"The base image has {len(self.extra_packages)} extraneous packages")
+
 
     def dockerize(self):
         with open(os.path.join(self.dir, 'Dockerfile'), 'w') as dockerfile:
             dockerfile.write(f"FROM {self.operating_sys}:{self.version}")
+            # TODO: remove self.extra_packages
         logging.info(f"Your Dockerfile is in {self.dir}")
 
 

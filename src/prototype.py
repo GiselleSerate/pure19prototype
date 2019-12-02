@@ -40,10 +40,9 @@ dictConfig({
 class SystemAnalyzer:
     def __init__(self, hostname=HOSTNAME, port=PORT, username=USERNAME):
         self.ssh_client = SSHClient()
-        # Explore ~/.ssh/ for keys
-        self.ssh_client.load_system_host_keys()
-        # Establish SSH connection
-        self.ssh_client.connect(hostname, port=port, username=username)
+        self.hostname = hostname
+        self.port = port
+        self.username = username
 
         self.docker_client = docker.from_env()
 
@@ -56,8 +55,16 @@ class SystemAnalyzer:
         self.dir = tempfile.mkdtemp()
 
 
-    def __del__(self):
-        # TODO possibly sketchy. maybe you should use not a destructor, I know there are better practices
+    def __enter__(self):
+        # Explore ~/.ssh/ for keys
+        self.ssh_client.load_system_host_keys()
+        # Establish SSH connection
+        self.ssh_client.connect(self.hostname, port=self.port, username=self.username)
+
+        return self
+
+
+    def __exit__(self, *args):
         # Make sure you kill the connection when you're done
         self.ssh_client.close()
 
@@ -155,10 +162,10 @@ class SystemAnalyzer:
 
 if __name__ == "__main__":
     logging.info('Beginning analysis...')
-    kowalski = SystemAnalyzer(hostname=HOSTNAME, port=PORT, username=USERNAME)
-    kowalski.get_os()
-    kowalski.get_packages()
-    kowalski.filter_packages()
-    kowalski.get_ports()
-    kowalski.get_procs()
-    kowalski.dockerize()
+    with SystemAnalyzer(hostname=HOSTNAME, port=PORT, username=USERNAME) as kowalski:
+        kowalski.get_os()
+        kowalski.get_packages()
+        kowalski.filter_packages()
+        kowalski.get_ports()
+        kowalski.get_procs()
+        kowalski.dockerize()

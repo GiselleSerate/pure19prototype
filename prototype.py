@@ -53,8 +53,20 @@ class SystemAnalyzer:
             print("No operating system yet.")
             self.get_os()
         if self.operating_sys == 'centos':
-            stdin, stdout, stderr = self.client.exec_command("rpm -qa --queryformat '%{NAME} %{VERSION}\n'")
-            self.packages = [(line.strip().split()[0], line.strip().split()[1]) for line in stdout]
+            stdin, stdout, stderr = self.client.exec_command("yum list installed")
+            #'yum list installed' prints some extra lines before the actual packages, so I want to ignore them
+            passedChaff = False;
+            for line in stdout:
+                if (passedChaff):
+                    #parse line
+                    pkgName = line.strip().split()[0] #curl.x86_64
+                    pkgName = pkgName.split('.')[0]   #curl
+                    pkgVer = line.strip().split()[1] #7.29.0-42.el7
+                    pkgVer = pkgVer.split('-')[0]    #7.29.0
+                    self.packages.append( (pkgName, pkgVer) )
+                elif (re.match(r'Installed Packages', line)):
+                        passedChaff = True
+
             print(self.packages)
         else:
             raise Exception(f"Unsupported operating system {operating_sys}: we don't know what package manager you're using.")

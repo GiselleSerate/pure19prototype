@@ -49,7 +49,7 @@ class SystemAnalyzer:
         self.operating_sys = None
         self.version = None
         self.image = None
-        self.packages = set()
+        self.packages = {}
         self.filtered_packages = set()
 
         self.dir = tempfile.mkdtemp()
@@ -91,7 +91,7 @@ class SystemAnalyzer:
             logging.warning("No operating system yet.")
             self.get_os()
         if self.operating_sys == 'centos':
-            stdin, stdout, stderr = self.client.exec_command("yum list installed")
+            stdin, stdout, stderr = self.ssh_client.exec_command("yum list installed")
             #'yum list installed' prints some extra lines before the actual packages, so I want to ignore them
             passedChaff = False;
             for line in stdout:
@@ -101,7 +101,7 @@ class SystemAnalyzer:
                     pkgName = pkgName.split('.')[0]   #curl
                     pkgVer = line.strip().split()[1] #7.29.0-42.el7
                     pkgVer = pkgVer.split('-')[0]    #7.29.0
-                    self.packages.append( (pkgName, pkgVer) )
+                    self.packages[pkgName] = pkgVer
                 elif (re.match(r'Installed Packages', line)):
                         passedChaff = True
 
@@ -166,6 +166,7 @@ class SystemAnalyzer:
         # Filter packages to exploit dependency relationships
         self.filtered_packages = filter_non_dependencies(just_packages - default_packages, self.get_dependencies)
         logging.info(f"Filtering by dependency further cut down {len(nondefault_packages)} packages to {len(self.filtered_packages)}")
+        # self.filtered_packages = just_packages
 
         # Determine packages to erase from base image
         self.extra_packages = default_packages - just_packages
@@ -179,8 +180,10 @@ class SystemAnalyzer:
             # TODO come back when you can figure out what ones are important here
             # for pkg_name in self.extra_packages:
             #     dockerfile.write(f"RUN yum -y erase {pkg_name}\n")
+            dockerfile.write("RUN yum -y install ")
             for pkg_name in self.filtered_packages:
-                dockerfile.write(f"RUN yum -y install {pkg_name}-{self.packages[pkg_name]}\n")
+                dockerfile.write(f"{pkg_name} ") #-{self.packages[pkg_name]}\n")
+            dockerfile.write("\n")
         logging.info(f"Your Dockerfile is in {self.dir}")
 
 

@@ -53,8 +53,20 @@ class SystemAnalyzer:
             print("No operating system yet.")
             self.get_os()
         if self.operating_sys == 'centos':
-            stdin, stdout, stderr = self.client.exec_command("rpm -qa --queryformat '%{NAME}\n'")
-            self.packages = [line.strip() for line in stdout]
+            stdin, stdout, stderr = self.client.exec_command("yum list installed")
+            #'yum list installed' prints some extra lines before the actual packages, so I want to ignore them
+            passedChaff = False;
+            for line in stdout:
+                if (passedChaff):
+                    #parse line
+                    pkgName = line.strip().split()[0] #curl.x86_64
+                    pkgName = pkgName.split('.')[0]   #curl
+                    pkgVer = line.strip().split()[1] #7.29.0-42.el7
+                    pkgVer = pkgVer.split('-')[0]    #7.29.0
+                    self.packages.append( (pkgName, pkgVer) )
+                elif (re.match(r'Installed Packages', line)):
+                        passedChaff = True
+
             print(self.packages)
         else:
             raise Exception(f"Unsupported operating system {operating_sys}: we don't know what package manager you're using.")
@@ -84,7 +96,9 @@ class SystemAnalyzer:
 
     def dockerize(self):
         with open(os.path.join(self.dir, 'Dockerfile'), 'w') as dockerfile:
-            dockerfile.write(f"FROM {self.operating_sys}:{self.version}")
+            dockerfile.write(f"FROM {self.operating_sys}:{self.version}\n")
+            for pkg_name, version in self.packages:
+                dockerfile.write(f"RUN yum -y install {pkg_name}\n")#-{version}\n")
         print(f"Your Dockerfile is in {self.dir}")
 
 

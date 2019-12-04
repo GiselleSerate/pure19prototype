@@ -164,7 +164,7 @@ class SystemAnalyzer:
         logging.info(f"Blacklisting defaults cut down {len(self.packages)} packages to {len(nondefault_packages)}")
 
         # Filter packages to exploit dependency relationships
-        self.filtered_packages = filter_non_dependencies(just_packages - default_packages, self.get_dependencies)
+        self.filtered_packages = filter_non_dependencies(nondefault_packages, self.get_dependencies)
         logging.info(f"Filtering by dependency further cut down {len(nondefault_packages)} packages to {len(self.filtered_packages)}")
         # self.filtered_packages = just_packages
 

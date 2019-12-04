@@ -2,7 +2,7 @@
 
 import logging
 
-from src.prototype import SystemAnalyzer
+# from src.prototype import SystemAnalyzer
 
 
 

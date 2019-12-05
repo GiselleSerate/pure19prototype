@@ -45,7 +45,7 @@ jobs:
           name: run tests
           command: |
             . venv/bin/activate
-            python -m pytest
+            python -m pytest -k "not integration"
 
       - store_artifacts:
           path: test-reports

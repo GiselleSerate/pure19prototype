@@ -146,12 +146,10 @@ class SystemAnalyzer:
     def dockerize(self):
         with open(os.path.join(self.dir, 'Dockerfile'), 'w') as dockerfile:
             dockerfile.write(f"FROM {self.operating_sys}:{self.version}\n")
-            # TODO come back when you can figure out what ones are important here
-            # for pkg_name in self.extra_packages:
-            #     dockerfile.write(f"RUN yum -y erase {pkg_name}\n")
+
             dockerfile.write("RUN yum -y install ")
-            for pkg_name in self.packages:
-                dockerfile.write(f"{pkg_name} ") #-{self.packages[pkg_name]}\n")
+            for name, ver in self.packages.items():
+                dockerfile.write(f"{name}-{ver} ")
             dockerfile.write("\n")
         logging.info(f"Your Dockerfile is in {self.dir}")
 

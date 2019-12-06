@@ -85,7 +85,7 @@ class SystemAnalyzer:
         logging.info(f"Pulled {self.image} from Docker hub.")
 
 
-    def parse_pkg_line(self, line):
+    def parse_pkg_line(line):
         #assumes line comes in as something like 'curl.x86_64   [1:]7.29.0-42.el7'
         name = line.strip().split()[0] #curl.x86_64
         name = name.split('.')[0]   #curl

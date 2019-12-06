@@ -85,6 +85,16 @@ class SystemAnalyzer:
         logging.info(f"Pulled {self.image} from Docker hub.")
 
 
+    def parse_pkg_line(self, line):
+        #assumes line comes in as something like 'curl.x86_64   [1:]7.29.0-42.el7'
+        name = line.strip().split()[0] #curl.x86_64
+        name = name.split('.')[0]   #curl
+        ver = line.strip().split()[1] #1:7.29.0-42.el7
+        ver = ver.split('-')[0]    #1:7.29.0
+        if (':' in ver):
+            ver = ver.split(':')[1] #7.29.0
+        return (name, ver)
+
     def get_packages(self):
         logging.info("Getting packages...")
         while self.operating_sys == None:
@@ -96,11 +106,7 @@ class SystemAnalyzer:
             passedChaff = False;
             for line in stdout:
                 if (passedChaff):
-                    #parse line
-                    pkgName = line.strip().split()[0] #curl.x86_64
-                    pkgName = pkgName.split('.')[0]   #curl
-                    pkgVer = line.strip().split()[1] #7.29.0-42.el7
-                    pkgVer = pkgVer.split('-')[0]    #7.29.0
+                    pkgName, pkgVer = self.parse_pkg_line(line)
                     self.packages[pkgName] = pkgVer
                 elif (re.match(r'Installed Packages', line)):
                         passedChaff = True

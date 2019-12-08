@@ -7,8 +7,6 @@ import tempfile
 import docker
 from paramiko import SSHClient
 
-#from dependencygraph import filter_non_dependencies
-
 
 
 # Constants (which we can move into a config file later)
@@ -50,7 +48,6 @@ class SystemAnalyzer:
         self.version = None
         self.image = None
         self.packages = {}
-        self.filtered_packages = set()
 
         self.dir = tempfile.mkdtemp()
 
@@ -84,6 +81,7 @@ class SystemAnalyzer:
         self.image = self.docker_client.images.pull(f"{operating_sys}:{version}")
         logging.info(f"Pulled {self.image} from Docker hub.")
 
+
     @staticmethod
     def parse_pkg_line(line):
         #assumes line comes in as something like 'curl.x86_64   [1:]7.29.0-42.el7'
@@ -94,6 +92,7 @@ class SystemAnalyzer:
         if (':' in ver):
             ver = ver.split(':')[1] #7.29.0
         return (name, ver)
+
 
     def get_packages(self):
         logging.info("Getting packages...")
@@ -152,43 +151,13 @@ class SystemAnalyzer:
             logging.debug(line.rstrip())
 
 
-    def filter_packages(self):
-        '''
-        Get a filtered list of packages after figuring out dependencies.
-        '''
-        logging.info("Filtering packages...")
-        while len(self.packages) == 0:
-            logging.warning("No packages yet.")
-            self.get_packages()
-
-        just_packages = set(self.packages.keys())
-
-        # Get default-installed packages from Docker base image we're going to use
-        pkg_bytestring = self.docker_client.containers.run(f"{self.operating_sys}:{self.version}", "rpm -qa --queryformat '%{NAME}\n'")
-        default_packages = set(pkg_bytestring.decode().split('\n'))
-        nondefault_packages = just_packages - default_packages
-        logging.info(f"Blacklisting defaults cut down {len(self.packages)} packages to {len(nondefault_packages)}")
-
-        # Filter packages to exploit dependency relationships
-        #self.filtered_packages = filter_non_dependencies(nondefault_packages, self.get_dependencies)
-        #logging.info(f"Filtering by dependency further cut down {len(nondefault_packages)} packages to {len(self.filtered_packages)}")
-        self.filtered_packages = just_packages
-
-        # Determine packages to erase from base image
-        self.extra_packages = default_packages - just_packages
-        self.extra_packages = {pkg for pkg in self.extra_packages if pkg != ""}
-        logging.info(f"The base image has {len(self.extra_packages)} extraneous packages")
-
-
     def dockerize(self):
         with open(os.path.join(self.dir, 'Dockerfile'), 'w') as dockerfile:
             dockerfile.write(f"FROM {self.operating_sys}:{self.version}\n")
-            # TODO come back when you can figure out what ones are important here
-            # for pkg_name in self.extra_packages:
-            #     dockerfile.write(f"RUN yum -y erase {pkg_name}\n")
+
             dockerfile.write("RUN yum -y install ")
-            for pkg_name in self.filtered_packages:
-                dockerfile.write(f"{pkg_name} ") #-{self.packages[pkg_name]}\n")
+            for name, ver in self.packages.items():
+                dockerfile.write(f"{name}-{ver} ")
             dockerfile.write("\n")
         logging.info(f"Your Dockerfile is in {self.dir}")
 
@@ -199,7 +168,6 @@ if __name__ == "__main__":
     with SystemAnalyzer(hostname=HOSTNAME, port=PORT, username=USERNAME) as kowalski:
         kowalski.get_os()
         kowalski.get_packages()
-        kowalski.filter_packages()
         kowalski.get_ports()
         kowalski.get_procs()
         kowalski.dockerize()

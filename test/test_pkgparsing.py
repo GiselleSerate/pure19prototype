@@ -1,4 +1,3 @@
-# from src.prototype import parse_pkg_line
 from src.prototype import SystemAnalyzer
 
 def test_basic_parse():

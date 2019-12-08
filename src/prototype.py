@@ -7,7 +7,7 @@ import tempfile
 import docker
 from paramiko import SSHClient
 
-from dependencygraph import filter_non_dependencies
+#from dependencygraph import filter_non_dependencies
 
 
 
@@ -84,7 +84,7 @@ class SystemAnalyzer:
         self.image = self.docker_client.images.pull(f"{operating_sys}:{version}")
         logging.info(f"Pulled {self.image} from Docker hub.")
 
-
+    @staticmethod
     def parse_pkg_line(line):
         #assumes line comes in as something like 'curl.x86_64   [1:]7.29.0-42.el7'
         name = line.strip().split()[0] #curl.x86_64
@@ -170,9 +170,9 @@ class SystemAnalyzer:
         logging.info(f"Blacklisting defaults cut down {len(self.packages)} packages to {len(nondefault_packages)}")
 
         # Filter packages to exploit dependency relationships
-        self.filtered_packages = filter_non_dependencies(nondefault_packages, self.get_dependencies)
-        logging.info(f"Filtering by dependency further cut down {len(nondefault_packages)} packages to {len(self.filtered_packages)}")
-        # self.filtered_packages = just_packages
+        #self.filtered_packages = filter_non_dependencies(nondefault_packages, self.get_dependencies)
+        #logging.info(f"Filtering by dependency further cut down {len(nondefault_packages)} packages to {len(self.filtered_packages)}")
+        self.filtered_packages = just_packages
 
         # Determine packages to erase from base image
         self.extra_packages = default_packages - just_packages

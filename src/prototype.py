@@ -1,3 +1,4 @@
+from enum import Enum
 import logging
 from logging.config import dictConfig
 import os
@@ -36,6 +37,8 @@ dictConfig({
 
 
 class SystemAnalyzer:
+    Mode = Enum('Mode', 'dry unversion delete')
+
     def __init__(self, hostname=HOSTNAME, port=PORT, username=USERNAME):
         self.ssh_client = SSHClient()
         self.hostname = hostname
@@ -49,7 +52,7 @@ class SystemAnalyzer:
         self.image = None
         self.packages = {}
 
-        self.dir = tempfile.mkdtemp()
+        self.tempdir = tempfile.mkdtemp()
 
 
     def __enter__(self):
@@ -67,6 +70,9 @@ class SystemAnalyzer:
 
 
     def get_os(self):
+        '''
+        Gets the operating system and version of the target system.
+        '''
         logging.info("Getting operating system and version...")
         stdin, stdout, stderr = self.ssh_client.exec_command('cat /etc/os-release')
         # Extract operating system and version
@@ -84,6 +90,9 @@ class SystemAnalyzer:
 
     @staticmethod
     def parse_pkg_line(line):
+        '''
+        Parses yum-style package lines.
+        '''
         #assumes line comes in as something like 'curl.x86_64   [1:]7.29.0-42.el7'
         name = line.strip().split()[0] #curl.x86_64
         name = name.split('.')[0]   #curl
@@ -95,6 +104,9 @@ class SystemAnalyzer:
 
 
     def get_packages(self):
+        '''
+        Gets all packages and versions from the target system.
+        '''
         logging.info("Getting packages...")
         while self.operating_sys == None:
             logging.warning("No operating system yet.")
@@ -116,6 +128,10 @@ class SystemAnalyzer:
 
 
     def get_dependencies(self, package):
+        '''
+        Gets the dependencies of a particular package on the target system. (Currently uses rpm.)
+        package -- the package to get deps for
+        '''
         # logging.debug(f"Getting dependencies for {package}...")
         # Issue--/bin/sh doesn't look like a package to me. what do we do about that?
         _, stdout, stderr = self.ssh_client.exec_command(f"rpm -qR {package}")
@@ -127,6 +143,9 @@ class SystemAnalyzer:
 
 
     def get_ports(self):
+        '''
+        Gets the open ports on the target machine. (Currently just a printout of a netstat call.)
+        '''
         # TODO: How do I know I'm not getting my own port that I'm using for ssh? Is it just literally port 22?
         # What if we try to run this on something that uses 22?
         stdin, stdout, stderr = self.ssh_client.exec_command('netstat -lntp')
@@ -141,6 +160,9 @@ class SystemAnalyzer:
 
 
     def get_procs(self):
+        '''
+        Gets the running processes on the target machine. (Currently just a printout of ps.)
+        '''
         # Normally we'd have to grep out the command we ran, but we don't have to because ssh. 
         # stdin, stdout, stderr = client.exec_command('ps -ao pid,cmd')
         stdin, stdout, stderr = self.ssh_client.exec_command('ps -eo pid,cmd')
@@ -151,15 +173,68 @@ class SystemAnalyzer:
             logging.debug(line.rstrip())
 
 
-    def dockerize(self):
-        with open(os.path.join(self.dir, 'Dockerfile'), 'w') as dockerfile:
+    def verify_packages(self, mode=Mode.dry):
+        '''
+        Looks through package list to see which packages are uninstallable.
+        mode -- in dry mode, just log bad pkgs. in delete mode, delete bad pkgs from the list. in unversion mode, unspecify version.
+        Returns True if all packages got installed correctly; returns False otherwise. 
+        '''
+        logging.info(f"Verifying packages in {mode.name} mode...")
+        self.dockerize(self.tempdir)
+        # Now that we have a Dockerfile, build and check the packages are there
+        image, _ = self.docker_client.images.build(tag='pytest', path=self.tempdir)
+        container = self.docker_client.containers.run(image=image.id, command="yum list installed", detach=True)
+        # Block until the command's done, then check its output.
+        container.wait()
+        output = container.logs()
+        output = output.decode()
+        logging.debug(output)
+
+        there = 0
+        total = 0
+        missing = []
+        for package in self.packages.keys():
+            if package in output:
+                there += 1
+            else:
+                missing.append(package)
+            total += 1
+
+        if there < total:
+            logging.error(f"{there}/{total} packages installed.")
+            logging.error(f"The following packages could not be installed: {missing}")
+            if mode == self.Mode.unversion:
+                logging.info(f"Unversion mode: removing version numbers from bad packages")
+                for pkg_name in missing:
+                    self.packages[pkg_name] = False
+            elif mode == self.Mode.delete:
+                logging.info(f"Delete mode: removing bad packages")
+                for pkg_name in missing:
+                    del self.packages[pkg_name]
+        else:
+            logging.info(f"All {total} packages installed properly.")
+
+        return there < total
+
+
+    def dockerize(self, folder):
+        '''
+        Creates Dockerfile from parameters discovered by the class.
+        Make sure to call all analysis functions beforehand; this function doesn't actually check for that.
+        folder -- the folder to put the Dockerfile in
+        '''
+        logging.info("Creating Dockerfile...")
+        with open(os.path.join(folder, 'Dockerfile'), 'w') as dockerfile:
             dockerfile.write(f"FROM {self.operating_sys}:{self.version}\n")
 
             dockerfile.write("RUN yum -y install ")
             for name, ver in self.packages.items():
-                dockerfile.write(f"{name}-{ver} ")
+                if ver:
+                    dockerfile.write(f"{name}-{ver} ")
+                else:
+                    dockerfile.write(f"{name} ")
             dockerfile.write("\n")
-        logging.info(f"Your Dockerfile is in {self.dir}")
+        logging.info(f"Your Dockerfile is in {folder}")
 
 
 
@@ -170,4 +245,7 @@ if __name__ == "__main__":
         kowalski.get_packages()
         kowalski.get_ports()
         kowalski.get_procs()
-        kowalski.dockerize()
+        kowalski.verify_packages(mode=SystemAnalyzer.Mode.unversion)
+        kowalski.verify_packages(mode=SystemAnalyzer.Mode.delete)
+        kowalski.verify_packages(mode=SystemAnalyzer.Mode.dry)
+        kowalski.dockerize(tempfile.mkdtemp())

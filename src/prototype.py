@@ -214,7 +214,7 @@ class SystemAnalyzer:
         Returns True if all packages got installed correctly; returns False otherwise. 
         '''
         logging.info(f"Verifying packages in {mode.name} mode...")
-        self.dockerize(self.tempdir)
+        self.dockerize(self.tempdir, verbose=False)
         # Now that we have a Dockerfile, build and check the packages are there
         image, _ = self.docker_client.images.build(tag='pytest', path=self.tempdir)
         container = self.docker_client.containers.run(image=image.id, command="yum list installed -d 0", detach=True)
@@ -251,13 +251,15 @@ class SystemAnalyzer:
         return there == total
 
 
-    def dockerize(self, folder):
+    def dockerize(self, folder, verbose=True):
         '''
         Creates Dockerfile from parameters discovered by the class.
         Make sure to call all analysis functions beforehand; this function doesn't actually check for that.
         folder -- the folder to put the Dockerfile in
+        verbose -- whether to emit log statements
         '''
-        logging.info("Creating Dockerfile...")
+        if verbose:
+            logging.info("Creating Dockerfile...")
         with open(os.path.join(folder, 'Dockerfile'), 'w') as dockerfile:
             dockerfile.write(f"FROM {self.operating_sys}:{self.version}\n")
 
@@ -268,7 +270,8 @@ class SystemAnalyzer:
                 else:
                     dockerfile.write(f"{name} ")
             dockerfile.write("\n")
-        logging.info(f"Your Dockerfile is in {folder}")
+        if verbose:
+            logging.info(f"Your Dockerfile is in {folder}")
 
 
 

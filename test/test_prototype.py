@@ -21,6 +21,7 @@ def test_integration_basic_build():
     with SystemAnalyzer(hostname=HOSTNAME, port=PORT, username=USERNAME) as kowalski:
         kowalski.get_os()
         kowalski.get_packages()
+        kowalski.filter_packages()
         no_wrong_versions = kowalski.verify_packages(mode=SystemAnalyzer.Mode.unversion)
         if no_wrong_versions:
             # Wish I had a meaningful assert for you, but if you hit this case you just pass the test.

@@ -91,7 +91,8 @@ class SystemAnalyzer:
     @staticmethod
     def parse_pkg_line(line):
         '''
-        Parses yum-style package lines.
+        Parses yum-style package lines. 
+        Returns a tuple of package name, package version.
         '''
         #assumes line comes in as something like 'curl.x86_64   [1:]7.29.0-42.el7'
         clean_line = line.strip().split(maxsplit=2)
@@ -104,6 +105,22 @@ class SystemAnalyzer:
         return (name, ver)
 
 
+    @staticmethod
+    def parse_all_pkgs(iterable):
+        '''
+        Parses an iterable of yum list installed -d 0 style output.
+        Returns a dictionary of package versions keyed on package name.
+        '''
+        packages = {}
+        passedChaff = False;
+        for line in iterable:
+            if (re.match(r'Installed Packages', line)):
+                continue    
+            pkgName, pkgVer = SystemAnalyzer.parse_pkg_line(line)
+            packages[pkgName] = pkgVer
+        return packages
+
+
     def get_packages(self):
         '''
         Gets all packages and versions from the target system.
@@ -113,16 +130,8 @@ class SystemAnalyzer:
             logging.warning("No operating system yet.")
             self.get_os()
         if self.operating_sys == 'centos':
-            stdin, stdout, stderr = self.ssh_client.exec_command("yum list installed")
-            #'yum list installed' prints some extra lines before the actual packages, so I want to ignore them
-            passedChaff = False;
-            for line in stdout:
-                if (passedChaff):
-                    pkgName, pkgVer = self.parse_pkg_line(line)
-                    self.packages[pkgName] = pkgVer
-                elif (re.match(r'Installed Packages', line)):
-                        passedChaff = True
-
+            stdin, stdout, stderr = self.ssh_client.exec_command("yum list installed -d 0")
+            self.packages = SystemAnalyzer.parse_all_pkgs(stdout)
             logging.debug(self.packages)
         else:
             raise Exception(f"Unsupported operating system {operating_sys}: we don't know what package manager you're using.")
@@ -172,6 +181,31 @@ class SystemAnalyzer:
             if not re.match(r'[0-9]+', line.split()[0]):
                 continue
             logging.debug(line.rstrip())
+
+
+    def filter_packages(self):
+        '''
+        Removes packages from the list to be installed which are already in the base image. 
+        '''
+        logging.info("Filtering packages...")
+        num_packages = len(self.packages)
+        if num_packages == 0:
+            logging.warning("No packages yet. Have you run get_packages?")
+            return
+
+        # Get default-installed packages from Docker base image we're going to use
+        # pkg_bytestring = self.docker_client.containers.run(f"{self.operating_sys}:{self.version}", "rpm -qa --queryformat '%{NAME}\n'") # TODO rpm? no thx
+        pkg_bytestring = self.docker_client.containers.run(f"{self.operating_sys}:{self.version}", "yum list installed -d 0") # TODO rpm? no thx
+        # Last element is a blank line; remove it.
+        pkg_list = pkg_bytestring.decode().split('\n')[:-1]
+        default_packages = SystemAnalyzer.parse_all_pkgs(pkg_list).keys()
+        # Delete default packages from what we'll install
+        for pkg_name in default_packages:
+            try:
+                del self.packages[pkg_name]
+            except KeyError:
+                pass
+        logging.info(f"Removing defaults cut down {num_packages} packages to {len(self.packages)}.")
 
 
     def verify_packages(self, mode=Mode.dry):
@@ -244,9 +278,6 @@ if __name__ == "__main__":
     with SystemAnalyzer(hostname=HOSTNAME, port=PORT, username=USERNAME) as kowalski:
         kowalski.get_os()
         kowalski.get_packages()
-        kowalski.get_ports()
-        kowalski.get_procs()
+        kowalski.filter_packages()
         kowalski.verify_packages(mode=SystemAnalyzer.Mode.unversion)
-        kowalski.verify_packages(mode=SystemAnalyzer.Mode.delete)
-        kowalski.verify_packages(mode=SystemAnalyzer.Mode.dry)
         kowalski.dockerize(tempfile.mkdtemp())

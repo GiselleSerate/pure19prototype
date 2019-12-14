@@ -1,5 +1,3 @@
-# NOTE: this test is broken because of imports, or something. sorry.
-
 import logging
 import tempfile
 

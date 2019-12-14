@@ -194,8 +194,7 @@ class SystemAnalyzer:
             return
 
         # Get default-installed packages from Docker base image we're going to use
-        # pkg_bytestring = self.docker_client.containers.run(f"{self.operating_sys}:{self.version}", "rpm -qa --queryformat '%{NAME}\n'") # TODO rpm? no thx
-        pkg_bytestring = self.docker_client.containers.run(f"{self.operating_sys}:{self.version}", "yum list installed -d 0") # TODO rpm? no thx
+        pkg_bytestring = self.docker_client.containers.run(f"{self.operating_sys}:{self.version}", "yum list installed -d 0")
         # Last element is a blank line; remove it.
         pkg_list = pkg_bytestring.decode().split('\n')[:-1]
         default_packages = SystemAnalyzer.parse_all_pkgs(pkg_list).keys()
@@ -218,7 +217,7 @@ class SystemAnalyzer:
         self.dockerize(self.tempdir)
         # Now that we have a Dockerfile, build and check the packages are there
         image, _ = self.docker_client.images.build(tag='pytest', path=self.tempdir)
-        container = self.docker_client.containers.run(image=image.id, command="yum list installed", detach=True)
+        container = self.docker_client.containers.run(image=image.id, command="yum list installed -d 0", detach=True)
         # Block until the command's done, then check its output.
         container.wait()
         output = container.logs()

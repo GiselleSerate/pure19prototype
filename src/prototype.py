@@ -205,17 +205,17 @@ class SystemAnalyzer:
             logging.error(f"{there}/{total} packages installed.")
             logging.error(f"The following packages could not be installed: {missing}")
             if mode == self.Mode.unversion:
-                logging.info(f"Unversion mode: removing version numbers from bad packages")
+                logging.info(f"Now removing version numbers from bad packages...")
                 for pkg_name in missing:
                     self.packages[pkg_name] = False
             elif mode == self.Mode.delete:
-                logging.info(f"Delete mode: removing bad packages")
+                logging.info(f"Now removing bad packages...")
                 for pkg_name in missing:
                     del self.packages[pkg_name]
         else:
             logging.info(f"All {total} packages installed properly.")
 
-        return there < total
+        return there == total
 
 
     def dockerize(self, folder):

@@ -16,10 +16,18 @@ LOG_LEVEL = 'INFO'
 
 
 def test_integration_basic_build():
+    '''
+    Test that all packages from our CentOS system can be installed
+    (first try with the specified version for all; failing that, try latest).
+    '''
     with SystemAnalyzer(hostname=HOSTNAME, port=PORT, username=USERNAME) as kowalski:
         kowalski.get_os()
         kowalski.get_packages()
         no_wrong_versions = kowalski.verify_packages(mode=SystemAnalyzer.Mode.unversion)
-        no_wrong_packages = kowalski.verify_packages(mode=SystemAnalyzer.Mode.delete)
-        no_probs_post_fix = kowalski.verify_packages(mode=SystemAnalyzer.Mode.dry)
-        assert no_wrong_packages or no_wrong_versions or no_probs_post_fix
+        if no_wrong_versions:
+            # Wish I had a meaningful assert for you, but if you hit this case you just pass the test.
+            assert no_wrong_versions
+        else:
+            # Some wrong versions. Try to compensate.
+            no_wrong_packages = kowalski.verify_packages(mode=SystemAnalyzer.Mode.dry)
+            assert no_wrong_packages

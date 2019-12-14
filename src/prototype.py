@@ -1,3 +1,4 @@
+from enum import Enum
 import logging
 from logging.config import dictConfig
 import os
@@ -6,8 +7,6 @@ import tempfile
 
 import docker
 from paramiko import SSHClient
-
-#from dependencygraph import filter_non_dependencies
 
 
 
@@ -38,6 +37,8 @@ dictConfig({
 
 
 class SystemAnalyzer:
+    Mode = Enum('Mode', 'dry unversion delete')
+
     def __init__(self, hostname=HOSTNAME, port=PORT, username=USERNAME):
         self.ssh_client = SSHClient()
         self.hostname = hostname
@@ -50,9 +51,8 @@ class SystemAnalyzer:
         self.version = None
         self.image = None
         self.packages = {}
-        self.filtered_packages = set()
 
-        self.dir = tempfile.mkdtemp()
+        self.tempdir = tempfile.mkdtemp()
 
 
     def __enter__(self):
@@ -70,6 +70,9 @@ class SystemAnalyzer:
 
 
     def get_os(self):
+        '''
+        Gets the operating system and version of the target system.
+        '''
         logging.info("Getting operating system and version...")
         stdin, stdout, stderr = self.ssh_client.exec_command('cat /etc/os-release')
         # Extract operating system and version
@@ -84,39 +87,61 @@ class SystemAnalyzer:
         self.image = self.docker_client.images.pull(f"{operating_sys}:{version}")
         logging.info(f"Pulled {self.image} from Docker hub.")
 
+
     @staticmethod
     def parse_pkg_line(line):
+        '''
+        Parses yum-style package lines. 
+        Returns a tuple of package name, package version.
+        '''
         #assumes line comes in as something like 'curl.x86_64   [1:]7.29.0-42.el7'
-        name = line.strip().split()[0] #curl.x86_64
-        name = name.split('.')[0]   #curl
-        ver = line.strip().split()[1] #1:7.29.0-42.el7
-        ver = ver.split('-')[0]    #1:7.29.0
-        if (':' in ver):
-            ver = ver.split(':')[1] #7.29.0
+        clean_line = line.strip().split(maxsplit=2)
+        name = clean_line[0] #curl.x86_64
+        name = name.rsplit(sep='.', maxsplit=1)[0]   #curl
+        ver = clean_line[1] #1:7.29.0-42.el7
+        ver = ver.split(sep='-', maxsplit=2)[0]    #1:7.29.0
+        # If epoch number exists, get rid of it.
+        ver = ver.split(':')[-1] #7.29.0
         return (name, ver)
 
+
+    @staticmethod
+    def parse_all_pkgs(iterable):
+        '''
+        Parses an iterable of yum list installed -d 0 style output.
+        Returns a dictionary of package versions keyed on package name.
+        '''
+        packages = {}
+        passedChaff = False;
+        for line in iterable:
+            if (re.match(r'Installed Packages', line)):
+                continue    
+            pkgName, pkgVer = SystemAnalyzer.parse_pkg_line(line)
+            packages[pkgName] = pkgVer
+        return packages
+
+
     def get_packages(self):
+        '''
+        Gets all packages and versions from the target system.
+        '''
         logging.info("Getting packages...")
         while self.operating_sys == None:
             logging.warning("No operating system yet.")
             self.get_os()
         if self.operating_sys == 'centos':
-            stdin, stdout, stderr = self.ssh_client.exec_command("yum list installed")
-            #'yum list installed' prints some extra lines before the actual packages, so I want to ignore them
-            passedChaff = False;
-            for line in stdout:
-                if (passedChaff):
-                    pkgName, pkgVer = self.parse_pkg_line(line)
-                    self.packages[pkgName] = pkgVer
-                elif (re.match(r'Installed Packages', line)):
-                        passedChaff = True
-
+            stdin, stdout, stderr = self.ssh_client.exec_command("yum list installed -d 0")
+            self.packages = SystemAnalyzer.parse_all_pkgs(stdout)
             logging.debug(self.packages)
         else:
             raise Exception(f"Unsupported operating system {operating_sys}: we don't know what package manager you're using.")
 
 
     def get_dependencies(self, package):
+        '''
+        Gets the dependencies of a particular package on the target system. (Currently uses rpm.)
+        package -- the package to get deps for
+        '''
         # logging.debug(f"Getting dependencies for {package}...")
         # Issue--/bin/sh doesn't look like a package to me. what do we do about that?
         _, stdout, stderr = self.ssh_client.exec_command(f"rpm -qR {package}")
@@ -128,6 +153,9 @@ class SystemAnalyzer:
 
 
     def get_ports(self):
+        '''
+        Gets the open ports on the target machine. (Currently just a printout of a netstat call.)
+        '''
         # TODO: How do I know I'm not getting my own port that I'm using for ssh? Is it just literally port 22?
         # What if we try to run this on something that uses 22?
         stdin, stdout, stderr = self.ssh_client.exec_command('netstat -lntp')
@@ -142,6 +170,9 @@ class SystemAnalyzer:
 
 
     def get_procs(self):
+        '''
+        Gets the running processes on the target machine. (Currently just a printout of ps.)
+        '''
         # Normally we'd have to grep out the command we ran, but we don't have to because ssh. 
         # stdin, stdout, stderr = client.exec_command('ps -ao pid,cmd')
         stdin, stdout, stderr = self.ssh_client.exec_command('ps -eo pid,cmd')
@@ -154,43 +185,93 @@ class SystemAnalyzer:
 
     def filter_packages(self):
         '''
-        Get a filtered list of packages after figuring out dependencies.
+        Removes packages from the list to be installed which are already in the base image. 
         '''
         logging.info("Filtering packages...")
-        while len(self.packages) == 0:
-            logging.warning("No packages yet.")
-            self.get_packages()
-
-        just_packages = set(self.packages.keys())
+        num_packages = len(self.packages)
+        if num_packages == 0:
+            logging.warning("No packages yet. Have you run get_packages?")
+            return
 
         # Get default-installed packages from Docker base image we're going to use
-        pkg_bytestring = self.docker_client.containers.run(f"{self.operating_sys}:{self.version}", "rpm -qa --queryformat '%{NAME}\n'")
-        default_packages = set(pkg_bytestring.decode().split('\n'))
-        nondefault_packages = just_packages - default_packages
-        logging.info(f"Blacklisting defaults cut down {len(self.packages)} packages to {len(nondefault_packages)}")
-
-        # Filter packages to exploit dependency relationships
-        #self.filtered_packages = filter_non_dependencies(nondefault_packages, self.get_dependencies)
-        #logging.info(f"Filtering by dependency further cut down {len(nondefault_packages)} packages to {len(self.filtered_packages)}")
-        self.filtered_packages = just_packages
-
-        # Determine packages to erase from base image
-        self.extra_packages = default_packages - just_packages
-        self.extra_packages = {pkg for pkg in self.extra_packages if pkg != ""}
-        logging.info(f"The base image has {len(self.extra_packages)} extraneous packages")
+        pkg_bytestring = self.docker_client.containers.run(f"{self.operating_sys}:{self.version}", "yum list installed -d 0")
+        # Last element is a blank line; remove it.
+        pkg_list = pkg_bytestring.decode().split('\n')[:-1]
+        default_packages = SystemAnalyzer.parse_all_pkgs(pkg_list).keys()
+        # Delete default packages from what we'll install
+        for pkg_name in default_packages:
+            try:
+                del self.packages[pkg_name]
+            except KeyError:
+                pass
+        logging.info(f"Removing defaults cut down {num_packages} packages to {len(self.packages)}.")
 
 
-    def dockerize(self):
-        with open(os.path.join(self.dir, 'Dockerfile'), 'w') as dockerfile:
+    def verify_packages(self, mode=Mode.dry):
+        '''
+        Looks through package list to see which packages are uninstallable.
+        mode -- in dry mode, just log bad pkgs. in delete mode, delete bad pkgs from the list. in unversion mode, unspecify version.
+        Returns True if all packages got installed correctly; returns False otherwise. 
+        '''
+        logging.info(f"Verifying packages in {mode.name} mode...")
+        self.dockerize(self.tempdir, verbose=False)
+        # Now that we have a Dockerfile, build and check the packages are there
+        image, _ = self.docker_client.images.build(tag='pytest', path=self.tempdir)
+        container = self.docker_client.containers.run(image=image.id, command="yum list installed -d 0", detach=True)
+        # Block until the command's done, then check its output.
+        container.wait()
+        output = container.logs()
+        output = output.decode()
+        logging.debug(output)
+
+        there = 0
+        total = 0
+        missing = []
+        for package in self.packages.keys():
+            if package in output:
+                there += 1
+            else:
+                missing.append(package)
+            total += 1
+
+        if there < total:
+            logging.error(f"{there}/{total} packages installed.")
+            logging.error(f"The following packages could not be installed: {missing}")
+            if mode == self.Mode.unversion:
+                logging.info(f"Now removing version numbers from bad packages...")
+                for pkg_name in missing:
+                    self.packages[pkg_name] = False
+            elif mode == self.Mode.delete:
+                logging.info(f"Now removing bad packages...")
+                for pkg_name in missing:
+                    del self.packages[pkg_name]
+        else:
+            logging.info(f"All {total} packages installed properly.")
+
+        return there == total
+
+
+    def dockerize(self, folder, verbose=True):
+        '''
+        Creates Dockerfile from parameters discovered by the class.
+        Make sure to call all analysis functions beforehand; this function doesn't actually check for that.
+        folder -- the folder to put the Dockerfile in
+        verbose -- whether to emit log statements
+        '''
+        if verbose:
+            logging.info("Creating Dockerfile...")
+        with open(os.path.join(folder, 'Dockerfile'), 'w') as dockerfile:
             dockerfile.write(f"FROM {self.operating_sys}:{self.version}\n")
-            # TODO come back when you can figure out what ones are important here
-            # for pkg_name in self.extra_packages:
-            #     dockerfile.write(f"RUN yum -y erase {pkg_name}\n")
+
             dockerfile.write("RUN yum -y install ")
-            for pkg_name in self.filtered_packages:
-                dockerfile.write(f"{pkg_name} ") #-{self.packages[pkg_name]}\n")
+            for name, ver in self.packages.items():
+                if ver:
+                    dockerfile.write(f"{name}-{ver} ")
+                else:
+                    dockerfile.write(f"{name} ")
             dockerfile.write("\n")
-        logging.info(f"Your Dockerfile is in {self.dir}")
+        if verbose:
+            logging.info(f"Your Dockerfile is in {folder}")
 
 
 
@@ -200,6 +281,5 @@ if __name__ == "__main__":
         kowalski.get_os()
         kowalski.get_packages()
         kowalski.filter_packages()
-        kowalski.get_ports()
-        kowalski.get_procs()
-        kowalski.dockerize()
+        kowalski.verify_packages(mode=SystemAnalyzer.Mode.unversion)
+        kowalski.dockerize(tempfile.mkdtemp())

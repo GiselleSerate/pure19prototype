@@ -94,12 +94,13 @@ class SystemAnalyzer:
         Parses yum-style package lines.
         '''
         #assumes line comes in as something like 'curl.x86_64   [1:]7.29.0-42.el7'
-        name = line.strip().split()[0] #curl.x86_64
-        name = name.split('.')[0]   #curl
-        ver = line.strip().split()[1] #1:7.29.0-42.el7
-        ver = ver.split('-')[0]    #1:7.29.0
-        if (':' in ver):
-            ver = ver.split(':')[1] #7.29.0
+        clean_line = line.strip().split(maxsplit=2)
+        name = clean_line[0] #curl.x86_64
+        name = name.rsplit(sep='.', maxsplit=1)[0]   #curl
+        ver = clean_line[1] #1:7.29.0-42.el7
+        ver = ver.split(sep='-', maxsplit=2)[0]    #1:7.29.0
+        # If epoch number exists, get rid of it.
+        ver = ver.split(':')[-1] #7.29.0
         return (name, ver)
 
 

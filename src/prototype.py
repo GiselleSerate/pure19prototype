@@ -164,6 +164,14 @@ class SystemAnalyzer(ABC):
         '''
         logging.debug(f"Getting dependencies for {package}...")
 
+    @abstractmethod
+    def get_config_files_for(self, package) 
+        '''
+        Returns a list of file paths to configuration files for the specified package.
+        package -- the pacakge whose configurations we are interested in
+        '''
+        logging.debug(f"Getting configuration files associated with {package}...")
+
 
     def get_ports(self):
         '''

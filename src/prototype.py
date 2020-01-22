@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from enum import Enum
 import logging
 from logging.config import dictConfig
@@ -35,10 +36,8 @@ dictConfig({
 })
 
 
-
-class SystemAnalyzer:
-    Mode = Enum('Mode', 'dry unversion delete')
-
+class GeneralAnalyzer:
+    '''Does all analysis of a system that you know nothing about.'''
     def __init__(self, hostname=HOSTNAME, port=PORT, username=USERNAME):
         self.ssh_client = SSHClient()
         self.hostname = hostname
@@ -49,10 +48,8 @@ class SystemAnalyzer:
 
         self.operating_sys = None
         self.version = None
-        self.image = None
-        self.packages = {}
 
-        self.tempdir = tempfile.mkdtemp()
+        self.analyzer = None
 
 
     def __enter__(self):
@@ -61,12 +58,15 @@ class SystemAnalyzer:
         # Establish SSH connection
         self.ssh_client.connect(self.hostname, port=self.port, username=self.username)
 
+        self.get_os()
+        self.get_analyzer()
+
         return self
 
 
     def __exit__(self, *args):
         # Make sure you kill the connection when you're done
-        self.ssh_client.close()
+        self.ssh_client.close()        
 
 
     def get_os(self):
@@ -83,73 +83,76 @@ class SystemAnalyzer:
                 version = line.split('=')[1].split('"')[1]
         self.operating_sys = operating_sys
         self.version = version
+
+
+    def get_analyzer(self):
+        '''
+        Creates an instance of the applicable SystemAnalyzer child class based on self.operating_sys.
+        '''
+        if self.operating_sys == 'centos':
+            self.analyzer = CentosAnalyzer(self.ssh_client, self.docker_client, self.operating_sys, self.version)
+        else:
+            logging.error(f"Unknown operating system {self.operating_sys}. This likely means we haven't written a SystemAnalyzer child class for this system yet.")
+
+
+class SystemAnalyzer(ABC):
+    '''
+    Does analysis of a system that you know some information about. Use as a base class where child classes know about more specific systems.
+    '''
+    Mode = Enum('Mode', 'dry unversion delete')
+
+    def __init__(self, ssh_client, docker_client, operating_sys, version):
+        self.ssh_client = ssh_client
+        self.docker_client = docker_client
+
+        self.operating_sys = operating_sys
+        self.version = version
         logging.debug(f"FROM {operating_sys}:{version}")
         self.image = self.docker_client.images.pull(f"{operating_sys}:{version}")
         logging.info(f"Pulled {self.image} from Docker hub.")
 
+        self.packages = {}
+
+        self.tempdir = tempfile.mkdtemp()
+
+
+    @property
+    @abstractmethod
+    def LIST_INSTALLED(self):
+        '''The command to list all installed packages.'''
+        return NotImplementedError
+
+    @property
+    @abstractmethod
+    def INSTALL_PKG(self):
+        '''The command to install a package.'''
+        return NotImplementedError
+
 
     @staticmethod
-    def parse_pkg_line(line):
-        '''
-        Parses yum-style package lines. 
-        Returns a tuple of package name, package version.
-        '''
-        #assumes line comes in as something like 'curl.x86_64   [1:]7.29.0-42.el7'
-        clean_line = line.strip().split(maxsplit=2)
-        name = clean_line[0] #curl.x86_64
-        name = name.rsplit(sep='.', maxsplit=1)[0]   #curl
-        ver = clean_line[1] #1:7.29.0-42.el7
-        ver = ver.split(sep='-', maxsplit=2)[0]    #1:7.29.0
-        # If epoch number exists, get rid of it.
-        ver = ver.split(':')[-1] #7.29.0
-        return (name, ver)
-
-
-    @staticmethod
+    @abstractmethod
     def parse_all_pkgs(iterable):
         '''
-        Parses an iterable of yum list installed -d 0 style output.
-        Returns a dictionary of package versions keyed on package name.
+        Parse the output of the applicable LIST_INSTALLED command. Return a dictionary of package: version.
         '''
-        packages = {}
-        passedChaff = False;
-        for line in iterable:
-            if (re.match(r'Installed Packages', line)):
-                continue    
-            pkgName, pkgVer = SystemAnalyzer.parse_pkg_line(line)
-            packages[pkgName] = pkgVer
-        return packages
+        ...
 
 
+    @abstractmethod
     def get_packages(self):
         '''
-        Gets all packages and versions from the target system.
+        Gets all packages and versions from the target system and puts them in self.packages.
         '''
         logging.info("Getting packages...")
-        while self.operating_sys == None:
-            logging.warning("No operating system yet.")
-            self.get_os()
-        if self.operating_sys == 'centos':
-            stdin, stdout, stderr = self.ssh_client.exec_command("yum list installed -d 0")
-            self.packages = SystemAnalyzer.parse_all_pkgs(stdout)
-            logging.debug(self.packages)
-        else:
-            raise Exception(f"Unsupported operating system {operating_sys}: we don't know what package manager you're using.")
 
 
+    @abstractmethod
     def get_dependencies(self, package):
         '''
-        Gets the dependencies of a particular package on the target system. (Currently uses rpm.)
+        Gets the dependencies of a particular package on the target system and returns a dictionary of them.
         package -- the package to get deps for
         '''
-        # logging.debug(f"Getting dependencies for {package}...")
-        # Issue--/bin/sh doesn't look like a package to me. what do we do about that?
-        _, stdout, stderr = self.ssh_client.exec_command(f"rpm -qR {package}")
-        # I have no idea which regex is correct--one takes me from 420 to 256 and the other goes to 311
-        # deps = [re.split('\W+', line.strip())[0] for line in stdout]
-        deps = {line.strip() for line in stdout}
-        logging.debug(f"{package} > {deps}")
-        return deps
+        logging.debug(f"Getting dependencies for {package}...")
 
 
     def get_ports(self):
@@ -194,10 +197,10 @@ class SystemAnalyzer:
             return
 
         # Get default-installed packages from Docker base image we're going to use
-        pkg_bytestring = self.docker_client.containers.run(f"{self.operating_sys}:{self.version}", "yum list installed -d 0")
+        pkg_bytestring = self.docker_client.containers.run(f"{self.operating_sys}:{self.version}", type(self).LIST_INSTALLED)
         # Last element is a blank line; remove it.
         pkg_list = pkg_bytestring.decode().split('\n')[:-1]
-        default_packages = SystemAnalyzer.parse_all_pkgs(pkg_list).keys()
+        default_packages = type(self).parse_all_pkgs(pkg_list).keys()
         # Delete default packages from what we'll install
         for pkg_name in default_packages:
             try:
@@ -216,8 +219,8 @@ class SystemAnalyzer:
         logging.info(f"Verifying packages in {mode.name} mode...")
         self.dockerize(self.tempdir, verbose=False)
         # Now that we have a Dockerfile, build and check the packages are there
-        image, _ = self.docker_client.images.build(tag='pytest', path=self.tempdir)
-        container = self.docker_client.containers.run(image=image.id, command="yum list installed -d 0", detach=True)
+        image, _ = self.docker_client.images.build(tag='verifypkg', path=self.tempdir)
+        container = self.docker_client.containers.run(image=image.id, command=type(self).LIST_INSTALLED, detach=True)
         # Block until the command's done, then check its output.
         container.wait()
         output = container.logs()
@@ -263,7 +266,7 @@ class SystemAnalyzer:
         with open(os.path.join(folder, 'Dockerfile'), 'w') as dockerfile:
             dockerfile.write(f"FROM {self.operating_sys}:{self.version}\n")
 
-            dockerfile.write("RUN yum -y install ")
+            dockerfile.write(f"RUN {type(self).INSTALL_PKG} ")
             for name, ver in self.packages.items():
                 if ver:
                     dockerfile.write(f"{name}-{ver} ")
@@ -275,11 +278,76 @@ class SystemAnalyzer:
 
 
 
+class CentosAnalyzer(SystemAnalyzer):
+    LIST_INSTALLED = 'yum list installed -d 0'
+    INSTALL_PKG = 'yum -y install'
+
+
+    def __init__(self, ssh_client, docker_client, operating_sys, version):
+        super().__init__(ssh_client, docker_client, operating_sys, version)
+
+
+    @staticmethod
+    def parse_pkg_line(line):
+        '''
+        Parses yum-style package lines. 
+        Returns a tuple of package name, package version.
+        '''
+        #assumes line comes in as something like 'curl.x86_64   [1:]7.29.0-42.el7'
+        clean_line = line.strip().split(maxsplit=2)
+        name = clean_line[0] #curl.x86_64
+        name = name.rsplit(sep='.', maxsplit=1)[0]   #curl
+        ver = clean_line[1] #1:7.29.0-42.el7
+        ver = ver.split(sep='-', maxsplit=2)[0]    #1:7.29.0
+        # If epoch number exists, get rid of it.
+        ver = ver.split(':')[-1] #7.29.0
+        return (name, ver)
+
+
+    def parse_all_pkgs(iterable):
+        '''
+        Parses an iterable of yum list installed -d 0 style output.
+        Returns a dictionary of package versions keyed on package name.
+        '''
+        packages = {}
+        for line in iterable:
+            if (re.match(r'Installed Packages', line)):
+                continue
+            pkgName, pkgVer = CentosAnalyzer.parse_pkg_line(line)
+            packages[pkgName] = pkgVer
+        return packages
+
+
+    def get_packages(self):
+        '''
+        Gets all packages and versions from the target system.
+        '''
+        super().get_packages()
+        stdin, stdout, stderr = self.ssh_client.exec_command(CentosAnalyzer.LIST_INSTALLED)
+        self.packages = CentosAnalyzer.parse_all_pkgs(stdout)
+        logging.debug(self.packages)
+
+
+    def get_dependencies(self, package):
+        '''
+        Gets the dependencies of a particular package on the target system. (Currently uses rpm.)
+        package -- the package to get deps for
+        '''
+        super().get_dependencies(package)
+        # Issue--/bin/sh doesn't look like a package to me. what do we do about that?
+        _, stdout, stderr = self.ssh_client.exec_command(f"rpm -qR {package}")
+        # I have no idea which regex is correct--one takes me from 420 to 256 and the other goes to 311
+        # deps = [re.split('\W+', line.strip())[0] for line in stdout]
+        deps = {line.strip() for line in stdout}
+        logging.debug(f"{package} > {deps}")
+        return deps
+
+
+
 if __name__ == "__main__":
     logging.info('Beginning analysis...')
-    with SystemAnalyzer(hostname=HOSTNAME, port=PORT, username=USERNAME) as kowalski:
-        kowalski.get_os()
-        kowalski.get_packages()
-        kowalski.filter_packages()
-        kowalski.verify_packages(mode=SystemAnalyzer.Mode.unversion)
-        kowalski.dockerize(tempfile.mkdtemp())
+    with GeneralAnalyzer(hostname=HOSTNAME, port=PORT, username=USERNAME) as kowalski:
+        kowalski.analyzer.get_packages()
+        kowalski.analyzer.filter_packages()
+        kowalski.analyzer.verify_packages(mode=SystemAnalyzer.Mode.unversion)
+        kowalski.analyzer.dockerize(tempfile.mkdtemp())

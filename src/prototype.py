@@ -283,10 +283,6 @@ class CentosAnalyzer(SystemAnalyzer):
     INSTALL_PKG = 'yum -y install'
 
 
-    def __init__(self, ssh_client, docker_client, operating_sys, version):
-        super().__init__(ssh_client, docker_client, operating_sys, version)
-
-
     @staticmethod
     def parse_pkg_line(line):
         '''

@@ -13,9 +13,15 @@ from paramiko import SSHClient
 
 # Constants (which we can move into a config file later)
 HOSTNAME = '127.0.0.1'
+LOG_LEVEL = 'INFO'
+
+# Centos
 PORT = 2222
 USERNAME = 'root'
-LOG_LEVEL = 'INFO'
+
+# Ubuntu
+PORT = 3333
+USERNAME = 'squirrel'
 
 
 # Configure logging
@@ -77,10 +83,12 @@ class GeneralAnalyzer:
         stdin, stdout, stderr = self.ssh_client.exec_command('cat /etc/os-release')
         # Extract operating system and version
         for line in stdout:
-            if re.match(r'ID=', line):
-                operating_sys = line.split('=')[1].split('"')[1]
-            elif re.match(r'VERSION_ID=', line):
-                version = line.split('=')[1].split('"')[1]
+            if re.match(r'VERSION_ID=', line):
+                line = line.replace('"', '')
+                version = line.split('=')[1].strip()
+            elif re.match(r'ID=', line):
+                line = line.replace('"', '')
+                operating_sys = line.split('=')[1].strip()
         self.operating_sys = operating_sys
         self.version = version
 

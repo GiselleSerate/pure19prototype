@@ -84,11 +84,11 @@ class GeneralAnalyzer:
         # Extract operating system and version
         for line in stdout:
             if re.match(r'VERSION_ID=', line):
-                line = line.replace('"', '')
-                version = line.split('=')[1].strip()
+                line = line.strip().replace('"', '')
+                version = line.split('=')[1]
             elif re.match(r'ID=', line):
-                line = line.replace('"', '')
-                operating_sys = line.split('=')[1].strip()
+                line = line.strip().replace('"', '')
+                operating_sys = line.split('=')[1]
         self.operating_sys = operating_sys
         self.version = version
 
@@ -99,6 +99,8 @@ class GeneralAnalyzer:
         '''
         if self.operating_sys == 'centos':
             self.analyzer = CentosAnalyzer(self.ssh_client, self.docker_client, self.operating_sys, self.version)
+        elif self.operating_sys == 'ubuntu':
+            self.analyzer = UbuntuAnalyzer(self.ssh_client, self.docker_client, self.operating_sys, self.version)
         else:
             logging.error(f"Unknown operating system {self.operating_sys}. This likely means we haven't written a SystemAnalyzer child class for this system yet.")
 
@@ -226,8 +228,9 @@ class SystemAnalyzer(ABC):
         '''
         logging.info(f"Verifying packages in {mode.name} mode...")
         self.dockerize(self.tempdir, verbose=False)
+        # self.dockerize(self.tempdir, verbose=True) # DEBUG
         # Now that we have a Dockerfile, build and check the packages are there
-        image, _ = self.docker_client.images.build(tag='verifypkg', path=self.tempdir)
+        image, _ = self.docker_client.images.build(tag=f'verify{self.operating_sys}', path=self.tempdir)
         container = self.docker_client.containers.run(image=image.id, command=type(self).LIST_INSTALLED, detach=True)
         # Block until the command's done, then check its output.
         container.wait()
@@ -262,6 +265,7 @@ class SystemAnalyzer(ABC):
         return there == total
 
 
+    @abstractmethod
     def dockerize(self, folder, verbose=True):
         '''
         Creates Dockerfile from parameters discovered by the class.
@@ -271,24 +275,11 @@ class SystemAnalyzer(ABC):
         '''
         if verbose:
             logging.info("Creating Dockerfile...")
-        with open(os.path.join(folder, 'Dockerfile'), 'w') as dockerfile:
-            dockerfile.write(f"FROM {self.operating_sys}:{self.version}\n")
-
-            dockerfile.write(f"RUN {type(self).INSTALL_PKG} ")
-            for name, ver in self.packages.items():
-                if ver:
-                    dockerfile.write(f"{name}-{ver} ")
-                else:
-                    dockerfile.write(f"{name} ")
-            dockerfile.write("\n")
-        if verbose:
-            logging.info(f"Your Dockerfile is in {folder}")
 
 
 
 class CentosAnalyzer(SystemAnalyzer):
     LIST_INSTALLED = 'yum list installed -d 0'
-    INSTALL_PKG = 'yum -y install'
 
 
     @staticmethod
@@ -347,11 +338,121 @@ class CentosAnalyzer(SystemAnalyzer):
         return deps
 
 
+    def dockerize(self, folder, verbose=True):
+        '''
+        Creates Dockerfile from parameters discovered by the class.
+        Make sure to call all analysis functions beforehand; this function doesn't actually check for that.
+        folder -- the folder to put the Dockerfile in
+        verbose -- whether to emit log statements
+        '''
+        super().dockerize(folder, verbose)
+        with open(os.path.join(folder, 'Dockerfile'), 'w') as dockerfile:
+            dockerfile.write(f"FROM {self.operating_sys}:{self.version}\n")
+
+            dockerfile.write(f"RUN yum -y install ")
+            for name, ver in self.packages.items():
+                if ver:
+                    dockerfile.write(f"{name}-{ver} ")
+                else:
+                    dockerfile.write(f"{name} ")
+            dockerfile.write("\n")
+        if verbose:
+            logging.info(f"Your Dockerfile is in {folder}")
+
+
+class UbuntuAnalyzer(SystemAnalyzer):
+    LIST_INSTALLED = 'apt list --installed'
+    INSTALL_PKG = 'apt-get update && apt-get install -y'
+
+
+    @staticmethod
+    def parse_pkg_line(line):
+        '''
+        Parses apt-style package lines. 
+        Returns a tuple of package name, package version.
+        '''
+        #assumes line comes in as something like 'accountsservice/bionic,now 0.6.45-1ubuntu1 amd64 [installed,automatic]'
+        clean_line = line.strip() # Trim whitespace
+        name = clean_line.split('/')[0]
+        ver = clean_line.split('now ')[1] # 0.6.45-1ubuntu1 amd64 [installed,automatic]
+        ver = ver.split(' ')[0] # 0.6.45-1ubuntu1
+        ver = ver.split('-')[0] # 0.6.45 (Remove debian_revision; this is now [epoch:]upstream_version.)
+        # If epoch number exists, get rid of it.
+        ver = ver.split(':')[-1]
+        return (name, ver)
+
+
+    def parse_all_pkgs(iterable):
+        '''
+        Parses an iterable of apt list --installed style output.
+        Returns a dictionary of package versions keyed on package name.
+        '''
+        packages = {}
+        for line in iterable:
+            if (re.match(r'Listing', line)):
+                continue
+            pkgName, pkgVer = UbuntuAnalyzer.parse_pkg_line(line)
+            packages[pkgName] = pkgVer
+        return packages
+
+
+    def get_packages(self):
+        '''
+        Gets all packages and versions from the target system.
+        '''
+        super().get_packages()
+        stdin, stdout, stderr = self.ssh_client.exec_command(UbuntuAnalyzer.LIST_INSTALLED)
+        self.packages = UbuntuAnalyzer.parse_all_pkgs(stdout)
+        logging.debug(self.packages)
+
+
+    def get_dependencies(self, package):
+        '''
+        NEVER CALLED :/
+        Gets the dependencies of a particular package on the target system. (Currently uses rpm.)
+        package -- the package to get deps for
+        '''
+        super().get_dependencies(package)
+        # Issue--/bin/sh doesn't look like a package to me. what do we do about that?
+        _, stdout, stderr = self.ssh_client.exec_command(f"rpm -qR {package}")
+        # I have no idea which regex is correct--one takes me from 420 to 256 and the other goes to 311
+        # deps = [re.split('\W+', line.strip())[0] for line in stdout]
+        deps = {line.strip() for line in stdout}
+        logging.debug(f"{package} > {deps}")
+        return deps
+
+
+    def dockerize(self, folder, verbose=True):
+        '''
+        Creates Dockerfile from parameters discovered by the class.
+        Make sure to call all analysis functions beforehand; this function doesn't actually check for that.
+        folder -- the folder to put the Dockerfile in
+        verbose -- whether to emit log statements
+        '''
+        super().dockerize(folder, verbose)
+        with open(os.path.join(folder, 'Dockerfile'), 'w') as dockerfile:
+            dockerfile.write(f"FROM {self.operating_sys}:{self.version}\n")
+
+            dockerfile.write(f"ENV DEBIAN_FRONTEND=noninteractive\n")
+
+            dockerfile.write(f"RUN apt-get update && apt-get install -y ")
+            for name, ver in self.packages.items():
+                if ver:
+                    dockerfile.write(f"{name}={ver} ")
+                else:
+                    dockerfile.write(f"{name} ")
+            dockerfile.write("\n")
+        if verbose:
+            logging.info(f"Your Dockerfile is in {folder}")
+
 
 if __name__ == "__main__":
     logging.info('Beginning analysis...')
     with GeneralAnalyzer(hostname=HOSTNAME, port=PORT, username=USERNAME) as kowalski:
         kowalski.analyzer.get_packages()
         kowalski.analyzer.filter_packages()
+        # DEBUG: try making nothing have versions lol
+        for name, ver in kowalski.analyzer.packages.items():
+            kowalski.analyzer.packages[name] = None
         kowalski.analyzer.verify_packages(mode=SystemAnalyzer.Mode.unversion)
         kowalski.analyzer.dockerize(tempfile.mkdtemp())

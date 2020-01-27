@@ -440,6 +440,17 @@ class UbuntuAnalyzer(SystemAnalyzer):
         logging.debug(f"{package} > {deps}")
         return deps
 
+    def get_config_files_for(self, package): 
+        '''
+        Returns a list of file paths to configuration files for the specified package.
+        package -- the pacakge whose configurations we are interested in
+        '''
+        super().get_config_files_for(package)
+        _, stdout, stderr = self.ssh_client.exec_command(f"cat /var/lib/dpkg/info/{package}.conffiles")
+        configs = {line.strip() for line in stdout}
+        logging.debug(f"{package} has the following config files: {configs}")
+        return configs
+
 
     def dockerize(self, folder, verbose=True):
         '''

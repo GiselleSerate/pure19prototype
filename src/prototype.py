@@ -395,9 +395,6 @@ class UbuntuAnalyzer(SystemAnalyzer):
         name = clean_line.split('/')[0]
         ver = clean_line.split('now ')[1] # 0.6.45-1ubuntu1 amd64 [installed,automatic]
         ver = ver.split(' ')[0] # 0.6.45-1ubuntu1
-        ver = ver.split('-')[0] # 0.6.45 (Remove debian_revision; this is now [epoch:]upstream_version.)
-        # If epoch number exists, get rid of it.
-        ver = ver.split(':')[-1]
         return (name, ver)
 
 

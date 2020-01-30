@@ -288,7 +288,7 @@ class SystemAnalyzer(ABC):
 
 class CentosAnalyzer(SystemAnalyzer):
     LIST_INSTALLED = 'yum list installed -d 0'
-
+    INSTALL_PKG = 'yum -y install'
 
     @staticmethod
     def parse_pkg_line(line):

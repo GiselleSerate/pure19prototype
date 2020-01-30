@@ -132,12 +132,6 @@ class SystemAnalyzer(ABC):
         '''The command to list all installed packages.'''
         return NotImplementedError
 
-    @property
-    @abstractmethod
-    def INSTALL_PKG(self):
-        '''The command to install a package.'''
-        return NotImplementedError
-
 
     @staticmethod
     @abstractmethod
@@ -235,10 +229,15 @@ class SystemAnalyzer(ABC):
         Returns True if all packages got installed correctly; returns False otherwise. 
         '''
         logging.info(f"Verifying packages in {mode.name} mode...")
-        self.dockerize(self.tempdir, verbose=False)
-        # self.dockerize(self.tempdir, verbose=True) # DEBUG
+        # self.dockerize(self.tempdir, verbose=False)
+        self.dockerize(self.tempdir, verbose=True) # DEBUG
         # Now that we have a Dockerfile, build and check the packages are there
-        image, _ = self.docker_client.images.build(tag=f'verify{self.operating_sys}', path=self.tempdir)
+        try:
+            image, _ = self.docker_client.images.build(tag=f'verify{self.operating_sys}', path=self.tempdir)
+        except Exception as e:
+            logging.error("NO, VERY BAD")
+            logging.error(e)
+            return
         container = self.docker_client.containers.run(image=image.id, command=type(self).LIST_INSTALLED, detach=True)
         # Block until the command's done, then check its output.
         container.wait()
@@ -381,7 +380,6 @@ class CentosAnalyzer(SystemAnalyzer):
 
 class UbuntuAnalyzer(SystemAnalyzer):
     LIST_INSTALLED = 'apt list --installed'
-    INSTALL_PKG = 'apt-get update && apt-get install -y'
 
 
     @staticmethod
@@ -449,6 +447,56 @@ class UbuntuAnalyzer(SystemAnalyzer):
         return configs
 
 
+    def verify_packages(self, mode=SystemAnalyzer.Mode.dry):
+        '''
+        Looks through package list to see which packages are uninstallable.
+        mode -- in dry mode, just log bad pkgs. in delete mode, delete bad pkgs from the list. in unversion mode, unspecify version.
+        Returns True if all packages got installed correctly; returns False otherwise. 
+        '''
+        logging.info(f"Verifying packages in {mode.name} mode...")
+        # Write prelude, create image.
+        with open(os.path.join(self.tempdir, 'Dockerfile'), 'w') as dockerfile:
+            dockerfile.write(f"FROM {self.operating_sys}:{self.version}\n")
+            dockerfile.write(f"ENV DEBIAN_FRONTEND=noninteractive\n")
+            dockerfile.write(f"RUN apt-get update\n") # I know this is supposed to go on the same line as the installs normally, but
+        image, _ = self.docker_client.images.build(tag=f'verify{self.operating_sys}', path=self.tempdir)
+        
+        # First try all of the packages.
+        install_all = "apt-get -y install "
+        for pkg, ver in self.packages.items():
+            install_all += f"{pkg}-{ver}"
+        try:
+            container = self.docker_client.containers.run(image.id, command=install_all)
+            logging.info("All packages installed properly.")
+            return True
+        except docker.errors.ContainerError as e:
+            logging.warning(e)
+        
+        logging.warning("Installing all packages failed. Now trying individual packages.")
+        missing = []
+        for pkg, ver in self.packages.items():
+            try:
+                container = self.docker_client.containers.run(image.id, command=f"apt-get -y install {pkg}={ver}")
+                logging.info(f"Succeeded on package {pkg}! yay")
+            except docker.errors.ContainerError as e:
+                logging.warning(f"Failed on package {pkg} with error {e}.")
+                missing.append(pkg)
+
+        # Report on missing packages.
+        logging.error(f"The following packages could not be installed: {missing}")
+        if mode == self.Mode.unversion:
+            logging.info(f"Now removing version numbers from bad packages...")
+            for pkg_name in missing:
+                self.packages[pkg_name] = False
+        elif mode == self.Mode.delete:
+            logging.info(f"Now removing bad packages...")
+            for pkg_name in missing:
+                del self.packages[pkg_name]
+
+        return False
+
+
+
     def dockerize(self, folder, verbose=True):
         '''
         Creates Dockerfile from parameters discovered by the class.
@@ -479,7 +527,7 @@ if __name__ == "__main__":
         kowalski.analyzer.get_packages()
         kowalski.analyzer.filter_packages()
         # DEBUG: try making nothing have versions lol
-        for name, ver in kowalski.analyzer.packages.items():
-            kowalski.analyzer.packages[name] = None
+        # for name, ver in kowalski.analyzer.packages.items():
+        #     kowalski.analyzer.packages[name] = None
         kowalski.analyzer.verify_packages(mode=SystemAnalyzer.Mode.unversion)
         kowalski.analyzer.dockerize(tempfile.mkdtemp())

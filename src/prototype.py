@@ -132,13 +132,6 @@ class SystemAnalyzer(ABC):
         '''The command to list all installed packages.'''
         return NotImplementedError
 
-    @property
-    @abstractmethod
-    def INSTALL_PKG(self):
-        '''The command to install a package.'''
-        return NotImplementedError
-
-
     @staticmethod
     @abstractmethod
     def parse_all_pkgs(iterable):
@@ -288,7 +281,6 @@ class SystemAnalyzer(ABC):
 
 class CentosAnalyzer(SystemAnalyzer):
     LIST_INSTALLED = 'yum list installed -d 0'
-    INSTALL_PKG = 'yum -y install'
 
     @staticmethod
     def parse_pkg_line(line):
@@ -381,8 +373,6 @@ class CentosAnalyzer(SystemAnalyzer):
 
 class UbuntuAnalyzer(SystemAnalyzer):
     LIST_INSTALLED = 'apt list --installed'
-    INSTALL_PKG = 'apt-get update && apt-get install -y'
-
 
     @staticmethod
     def parse_pkg_line(line):

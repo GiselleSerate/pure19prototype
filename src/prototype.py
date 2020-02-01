@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from enum import Enum
+import itertools
 import logging
 from logging.config import dictConfig
 import os
@@ -209,7 +210,7 @@ class SystemAnalyzer(ABC):
             return
 
         # Get default-installed packages from Docker base image we're going to use
-        pkg_bytestring = self.docker_client.containers.run(f"{self.operating_sys}:{self.version}", type(self).LIST_INSTALLED)
+        pkg_bytestring = self.docker_client.containers.run(f"{self.operating_sys}:{self.version}", type(self).LIST_INSTALLED, remove=True)
         # Last element is a blank line; remove it.
         pkg_list = pkg_bytestring.decode().split('\n')[:-1]
         default_packages = type(self).parse_all_pkgs(pkg_list).keys()
@@ -238,7 +239,7 @@ class SystemAnalyzer(ABC):
             logging.error("NO, VERY BAD")
             logging.error(e)
             return
-        container = self.docker_client.containers.run(image=image.id, command=type(self).LIST_INSTALLED, detach=True)
+        container = self.docker_client.containers.run(image=image.id, command=type(self).LIST_INSTALLED, detach=True, remove=True)
         # Block until the command's done, then check its output.
         container.wait()
         output = container.logs()
@@ -445,6 +446,17 @@ class UbuntuAnalyzer(SystemAnalyzer):
         logging.debug(f"{package} has the following config files: {configs}")
         return configs
 
+    def assemble_packages(self):
+        '''
+        Assembles all packages and versions (if applicable) into a string for installer, and returns the string.
+        '''
+        install_all = ""
+        for name, ver in self.packages.items():
+            if ver:
+                install_all += f"{name}={ver} "
+            else:
+                install_all += f"{name} "
+        return install_all
 
     def verify_packages(self, mode=SystemAnalyzer.Mode.dry):
         '''
@@ -460,38 +472,41 @@ class UbuntuAnalyzer(SystemAnalyzer):
             dockerfile.write(f"RUN apt-get update\n") # I know this is supposed to go on the same line as the installs normally, but
         image, _ = self.docker_client.images.build(tag=f'verify{self.operating_sys}', path=self.tempdir)
         
-        # First try all of the packages.
+        # Try installing all of the packages.
         install_all = "apt-get -y install "
-        for pkg, ver in self.packages.items():
-            install_all += f"{pkg}-{ver}"
-        try:
-            container = self.docker_client.containers.run(image.id, command=install_all)
+        install_all += self.assemble_packages()
+
+        # Spin up the container and let it do its thing.
+        container = self.docker_client.containers.run(image.id, command=install_all, detach=True)
+        container.wait()
+
+        # Parse the container's output.
+        missing_pkgs = re.findall("E: Unable to locate package (.*)\n", container.logs().decode())
+        missing_vers = re.findall("' for '(.*)' was not found\n", container.logs().decode())
+
+        if not re.search("E: ", container.logs().decode()):
             logging.info("All packages installed properly.")
+            container.remove()
             return True
-        except docker.errors.ContainerError as e:
-            logging.warning(e)
         
-        logging.warning("Installing all packages failed. Now trying individual packages.")
-        missing = []
-        for pkg, ver in self.packages.items():
-            try:
-                container = self.docker_client.containers.run(image.id, command=f"apt-get -y install {pkg}={ver}")
-                logging.info(f"Succeeded on package {pkg}! yay")
-            except docker.errors.ContainerError as e:
-                logging.warning(f"Failed on package {pkg} with error {e}.")
-                missing.append(pkg)
+        if not missing_pkgs and not missing_vers: 
+            logging.error(f"No missing packages or versions found, but there was an error:\n{container.logs().decode()}")
+            # Intentionally not removing the container for debugging purposes. 
+            return False
 
         # Report on missing packages.
-        logging.error(f"The following packages could not be installed: {missing}")
+        logging.warning(f"Could not find the following packages: {missing_pkgs}")
+        logging.warning(f"Could not find versions for the following packages: {missing_vers}")
         if mode == self.Mode.unversion:
             logging.info(f"Now removing version numbers from bad packages...")
-            for pkg_name in missing:
+            for pkg_name in missing_vers:
                 self.packages[pkg_name] = False
         elif mode == self.Mode.delete:
             logging.info(f"Now removing bad packages...")
-            for pkg_name in missing:
+            for pkg_name in itertools.chain(missing_pkgs, missing_vers):
                 del self.packages[pkg_name]
 
+        container.remove()
         return False
 
 
@@ -510,11 +525,7 @@ class UbuntuAnalyzer(SystemAnalyzer):
             dockerfile.write(f"ENV DEBIAN_FRONTEND=noninteractive\n")
 
             dockerfile.write(f"RUN apt-get update && apt-get install -y ")
-            for name, ver in self.packages.items():
-                if ver:
-                    dockerfile.write(f"{name}={ver} ")
-                else:
-                    dockerfile.write(f"{name} ")
+            dockerfile.write(self.assemble_packages())
             dockerfile.write("\n")
         if verbose:
             logging.info(f"Your Dockerfile is in {folder}")
@@ -525,8 +536,7 @@ if __name__ == "__main__":
     with GeneralAnalyzer(hostname=HOSTNAME, port=PORT, username=USERNAME) as kowalski:
         kowalski.analyzer.get_packages()
         kowalski.analyzer.filter_packages()
-        # DEBUG: try making nothing have versions lol
-        # for name, ver in kowalski.analyzer.packages.items():
-        #     kowalski.analyzer.packages[name] = None
-        kowalski.analyzer.verify_packages(mode=SystemAnalyzer.Mode.unversion)
+        for mode in (SystemAnalyzer.Mode.dry, SystemAnalyzer.Mode.unversion, SystemAnalyzer.Mode.delete):
+            if kowalski.analyzer.verify_packages(mode=mode):
+                break
         kowalski.analyzer.dockerize(tempfile.mkdtemp())

@@ -24,6 +24,10 @@ USERNAME = 'root'
 PORT = 3333
 USERNAME = 'squirrel'
 
+# Ubuntu container
+PORT = 1022
+USERNAME = 'sshuser'
+
 
 # Configure logging
 dictConfig({

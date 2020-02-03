@@ -18,6 +18,9 @@ jobs:
     working_directory: ~/repo
 
     steps:
+      - add_ssh_keys:
+          fingerprints:
+            - "c2:6d:e9:3d:2e:04:c0:e5:26:46:99:f5:3c:1c:c8:84"
       - checkout
 
       # Download and cache dependencies
@@ -45,7 +48,7 @@ jobs:
           name: run tests
           command: |
             . venv/bin/activate
-            python -m pytest -k "not integration"
+            python -m pytest -k "not local"
 
       - store_artifacts:
           path: test-reports

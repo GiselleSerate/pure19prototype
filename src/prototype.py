@@ -237,7 +237,7 @@ class SystemAnalyzer(ABC):
         self.dockerize(self.tempdir, verbose=False)
         # Now that we have a Dockerfile, build and check the packages are there
         image, _ = self.docker_client.images.build(tag=f'verify{self.operating_sys}', path=self.tempdir)
-        container = self.docker_client.containers.run(image=image.id, command=type(self).LIST_INSTALLED, detach=True, remove=True)
+        container = self.docker_client.containers.run(image=image.id, command=type(self).LIST_INSTALLED, detach=True)
         # Block until the command's done, then check its output.
         container.wait()
         output = container.logs()
@@ -268,6 +268,7 @@ class SystemAnalyzer(ABC):
         else:
             logging.info(f"All {total} packages installed properly.")
 
+        container.remove()
         return there == total
 
 

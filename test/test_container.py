@@ -25,7 +25,7 @@ def test_basic_ubuntu_container():
     base_image, _ = docker_client.images.build(tag='test_basic_ubuntu_base_img', path=os.path.join(os.getcwd(), "containers/ubuntu"))
 
     try:
-        base_container = docker_client.containers.run(base_image.id, detach=True, ports={PORT: 22})
+        base_container = docker_client.containers.run(base_image.id, detach=True, ports={PORT: 1234})
 
         # Analyze container
         logging.info("Analyzing container . . .")

@@ -234,15 +234,9 @@ class SystemAnalyzer(ABC):
         Returns True if all packages got installed correctly; returns False otherwise. 
         '''
         logging.info(f"Verifying packages in {mode.name} mode...")
-        # self.dockerize(self.tempdir, verbose=False)
-        self.dockerize(self.tempdir, verbose=True) # DEBUG
+        self.dockerize(self.tempdir, verbose=False)
         # Now that we have a Dockerfile, build and check the packages are there
-        try:
-            image, _ = self.docker_client.images.build(tag=f'verify{self.operating_sys}', path=self.tempdir)
-        except Exception as e:
-            logging.error("NO, VERY BAD")
-            logging.error(e)
-            return
+        image, _ = self.docker_client.images.build(tag=f'verify{self.operating_sys}', path=self.tempdir)
         container = self.docker_client.containers.run(image=image.id, command=type(self).LIST_INSTALLED, detach=True, remove=True)
         # Block until the command's done, then check its output.
         container.wait()

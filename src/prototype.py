@@ -237,8 +237,8 @@ class SystemAnalyzer(ABC):
         logging.info(f"Verifying packages in {mode.name} mode...")
         self.dockerize(self.tempdir, verbose=False)
         # Now that we have a Dockerfile, build and check the packages are there
-        image, _ = self.docker_client.images.build(tag=f'verify{self.operating_sys}', path=self.tempdir)
-        container = self.docker_client.containers.run(image=image.id, command=type(self).LIST_INSTALLED, detach=True)
+        self.image, _ = self.docker_client.images.build(tag=f'verify{self.operating_sys}', path=self.tempdir)
+        container = self.docker_client.containers.run(image=self.image.id, command=type(self).LIST_INSTALLED, detach=True)
         # Block until the command's done, then check its output.
         container.wait()
         output = container.logs()
@@ -486,14 +486,14 @@ class UbuntuAnalyzer(SystemAnalyzer):
             dockerfile.write(f"FROM {self.operating_sys}:{self.version}\n")
             dockerfile.write(f"ENV DEBIAN_FRONTEND=noninteractive\n")
             dockerfile.write(f"RUN apt-get update\n") # I know this is supposed to go on the same line as the installs normally, but
-        image, _ = self.docker_client.images.build(tag=f'verify{self.operating_sys}', path=self.tempdir)
+        self.image, _ = self.docker_client.images.build(tag=f'verify{self.operating_sys}', path=self.tempdir)
         
         # Try installing all of the packages.
         install_all = "apt-get -y install "
         install_all += self.assemble_packages()
 
         # Spin up the container and let it do its thing.
-        container = self.docker_client.containers.run(image.id, command=install_all, detach=True)
+        container = self.docker_client.containers.run(self.image.id, command=install_all, detach=True)
         container.wait()
 
         # Parse the container's output.

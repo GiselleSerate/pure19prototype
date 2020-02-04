@@ -273,6 +273,26 @@ class SystemAnalyzer(ABC):
         return there == total
 
 
+    def get_hash_from_container(self, filepath):
+        '''
+        Given a filepath, returns a checksum of the indicated file.
+        Target docker image must have sha1sum available for use.
+        Must be called after verify_packages, as it relies on the container having
+        already been built and its packages installed.
+        '''
+        logging.debug(f"hashing default configuration file {filepath} from the container")
+        container = self.docker_client.containers.run(image=self.image.id, command=f"sha1sum {filepath}", detach=True)
+        container.wait()
+        output = container.logs().decode()
+        if 'No such file' in output:
+            hash = 'No such file'
+        else:
+            hash = output.split()[0]
+        logging.debug(hash)
+        return hash
+
+
+
     def get_filesystem_differences(self):
         '''
         Returns a list of the hashes of configuration files that are different
@@ -556,3 +576,8 @@ if __name__ == "__main__":
             if kowalski.analyzer.verify_packages(mode=mode):
                 break
         kowalski.analyzer.dockerize(tempfile.mkdtemp())
+        # DEBUG: for testing config hashing
+        # for pkg in kowalski.analyzer.packages:
+        #     confs = kowalski.analyzer.get_config_files_for(pkg)
+        #     for conf in confs:
+        #         kowalski.analyzer.get_hash_from_container(conf)

@@ -8,7 +8,8 @@ import re
 import tempfile
 
 import docker
-from paramiko import SSHClient
+import hashlib
+from paramiko import SSHClient, SFTP
 
 
 
@@ -277,6 +278,23 @@ class SystemAnalyzer(ABC):
         return there == total
 
 
+    def get_filesystem_differences(self):
+        '''
+        Returns a list of the hashes of configuration files that are different
+        *** so far only returns hashes of configs from original system ***
+        '''
+        hash_algorithm = sha1()
+        packages = get_packages()
+        original_config_hashes = []
+        for package in packages:
+            configs = get_config_files_for(package)
+            for config in configs: 
+                config_SFTPFile = ssh_client(config)
+                config_hash = config_SFTPFile.check(hash_algorithm)
+                original_config_hashes.append(config_hash)
+                logging.debug(f"{config} has the following config files: {config_hash}")
+
+
     @abstractmethod
     def dockerize(self, folder, verbose=True):
         '''
@@ -358,7 +376,6 @@ class CentosAnalyzer(SystemAnalyzer):
         configs = {line.strip() for line in stdout}
         logging.debug(f"{package} has the following config files: {configs}")
         return configs
-
 
     def dockerize(self, folder, verbose=True):
         '''

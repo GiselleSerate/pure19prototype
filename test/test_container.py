@@ -11,6 +11,13 @@ from src.prototype import GeneralAnalyzer, SystemAnalyzer
 
 # Constants (which we can move into a config file later)
 HOSTNAME = '127.0.0.1'
+USERNAME = 'sshuser'
+PORT = 1022
+
+# CircleCI constants
+HOSTNAME = 'remote-docker'
+USERNAME = 'sshuser'
+PORT = 22
 
 
 
@@ -65,7 +72,7 @@ def test_basic_ubuntu_container():
     Test that basic sshable ubuntu container can be put through the prototype
     '''
     expected = ['openssh-server']
-    container_tester(operating_sys='ubuntu', port=1022, username='sshuser', expected=expected)
+    container_tester(operating_sys='ubuntu', port=PORT, username=USERNAME, expected=expected)
 
 
 def test_basic_centos_container():
@@ -73,4 +80,4 @@ def test_basic_centos_container():
     Test that basic sshable centos container can be put through the prototype
     '''
     expected = ['openssh-server', 'openssh-clients']
-    container_tester(operating_sys='centos', port=1222, username='sshuser', expected=expected)
+    container_tester(operating_sys='centos', port=PORT, username=USERNAME, expected=expected)

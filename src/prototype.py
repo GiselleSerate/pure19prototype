@@ -28,6 +28,10 @@ USERNAME = 'squirrel'
 PORT = 1022
 USERNAME = 'sshuser'
 
+# Centos container
+PORT = 1222
+USERNAME = 'sshuser'
+
 
 # Configure logging
 dictConfig({

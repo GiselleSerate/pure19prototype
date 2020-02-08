@@ -15,7 +15,7 @@ USERNAME = 'sshuser'
 PORT = 1022
 
 # CircleCI constants
-HOSTNAME = 'remote-docker'
+HOSTNAME = '127.0.0.1'
 USERNAME = 'sshuser'
 PORT = 1022
 

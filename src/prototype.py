@@ -6,10 +6,11 @@ from logging.config import dictConfig
 import os
 import re
 import tempfile
+import hashlib
 
 import docker
 import hashlib
-from paramiko import SSHClient, SFTP
+from paramiko import SSHClient
 
 
 
@@ -291,23 +292,21 @@ class SystemAnalyzer(ABC):
         logging.debug(hash)
         return hash
 
-
-
     def get_filesystem_differences(self):
         '''
-        Returns a list of the hashes of configuration files that are different
-        *** so far only returns hashes of configs from original system ***
+        Returns a list of configuration files that are different by comparing their sha1sum hashes
         '''
-        hash_algorithm = sha1()
         packages = get_packages()
-        original_config_hashes = []
-        for package in packages:
-            configs = get_config_files_for(package)
-            for config in configs: 
-                config_SFTPFile = ssh_client(config)
-                config_hash = config_SFTPFile.check(hash_algorithm)
-                original_config_hashes.append(config_hash)
-                logging.debug(f"{config} has the following config files: {config_hash}")
+        config_differences = []
+        for package in packages: 
+            configs = self.get_config_files_for(package)
+            for config in configs:
+                logging.debug(f"hashing configuration file {config} from the VM")
+                hash_from_VM = hashlib.sha1(config.encode())
+                hash_from_container = self.get_hash_from_container(config)
+                if hash_from_container =! hash_from_VM
+                    config_differences.append(config)
+        return config_differences differences
 
 
     @abstractmethod

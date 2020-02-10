@@ -306,7 +306,7 @@ class SystemAnalyzer(ABC):
                 hash_from_container = self.get_hash_from_container(config)
                 if hash_from_container =! hash_from_VM
                     config_differences.append(config)
-        return config_differences differences
+        return config_differences
 
 
     @abstractmethod

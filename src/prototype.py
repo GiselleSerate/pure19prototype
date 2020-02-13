@@ -22,13 +22,13 @@ LOG_LEVEL = 'INFO'
 PORT = 2222
 USERNAME = 'root'
 
-# Ubuntu
-PORT = 3333
-USERNAME = 'squirrel'
+# # Ubuntu
+# PORT = 3333
+# USERNAME = 'squirrel'
 
-# Ubuntu container
-PORT = 1022
-USERNAME = 'sshuser'
+# # Ubuntu container
+# PORT = 1022
+# USERNAME = 'sshuser'
 
 
 # Configure logging
@@ -277,35 +277,51 @@ class SystemAnalyzer(ABC):
     def get_hash_from_container(self, filepath):
         '''
         Given a filepath, returns a checksum of the indicated file.
-        Target docker image must have sha1sum available for use.
+        Target docker image must have cksum available for use.
         Must be called after verify_packages, as it relies on the container having
         already been built and its packages installed.
         '''
         logging.debug(f"hashing default configuration file {filepath} from the container")
-        container = self.docker_client.containers.run(image=self.image.id, command=f"sha1sum {filepath}", detach=True)
+        container = self.docker_client.containers.run(image=self.image.id, command=f"cksum {filepath}", detach=True)
         container.wait()
         output = container.logs().decode()
         if 'No such file' in output:
-            hash = 'No such file'
+            hash = None
         else:
             hash = output.split()[0]
         logging.debug(hash)
         return hash
 
+    def get_hash_from_VM(self, filepath):
+        '''
+        Given a filepath, returns a checksum of the indicated file from a VM
+        '''
+        _, stdout, _ = self.ssh_client.exec_command(f'cksum {filepath}')
+        hash = None 
+        for line in stdout:
+            if 'No such file' in line:
+                return None
+            hash = line.split()[0]
+        logging.debug(hash)
+        return hash 
+
     def get_filesystem_differences(self):
         '''
-        Returns a list of configuration files that are different by comparing their sha1sum hashes
+        Returns a list of configuration files that are different by comparing their cksum hashes
         '''
-        packages = get_packages()
+        if not self.packages:
+            logging.error(f"attempted to get filesystem differences but has not run get_packages() yet")
+            return None
         config_differences = []
-        for package in packages: 
-            configs = self.get_config_files_for(package)
+        for pkg in self.packages: 
+            configs = self.get_config_files_for(pkg)
             for config in configs:
-                logging.debug(f"hashing configuration file {config} from the VM")
-                hash_from_VM = hashlib.sha1(config.encode())
+                logging.error(f"hashing configuration file {config} from the VM")
+                hash_from_VM = self.get_hash_from_VM(config)
                 hash_from_container = self.get_hash_from_container(config)
-                if hash_from_container =! hash_from_VM
+                if hash_from_container != hash_from_VM:
                     config_differences.append(config)
+        logging.error(f"config differences are {config_differences}")
         return config_differences
 
 
@@ -580,3 +596,5 @@ if __name__ == "__main__":
         #     confs = kowalski.analyzer.get_config_files_for(pkg)
         #     for conf in confs:
         #         kowalski.analyzer.get_hash_from_container(conf)
+        # DEBUG: for testing filesystem diffs
+        kowalski.analyzer.get_filesystem_differences()

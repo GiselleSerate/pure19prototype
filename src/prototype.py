@@ -23,8 +23,8 @@ PORT = 2222
 USERNAME = 'root'
 
 # # Ubuntu
-# PORT = 3333
-# USERNAME = 'squirrel'
+PORT = 3333
+USERNAME = 'squirrel'
 
 # # Ubuntu container
 # PORT = 1022
@@ -324,6 +324,24 @@ class SystemAnalyzer(ABC):
         logging.error(f"config differences are {config_differences}")
         return config_differences
 
+    def compare_names(self):
+        '''
+        Takes the set difference of the file names of the vm and the container.
+        '''
+        docker_filenames = set()
+        vm_filenames = set()
+        for folder in ['/bin', '/etc', '/lib', '/opt', '/sbin', '/usr']:
+            _, stdout, _ = self.ssh_client.exec_command(f"find {folder}")
+            for line in stdout:
+                vm_filenames.add(line.strip())
+            container = self.docker_client.containers.run(image=self.image.id, command=f"find {folder}", detach=True)
+            container.wait()
+            output = container.logs().decode()
+            for line in output.split():
+                docker_filenames.add(line)
+        logging.info(f"total number of files in vm is {len(vm_filenames)}")
+        logging.info(f"total number of files in container is {len(docker_filenames)}")
+        return docker_filenames - vm_filenames, vm_filenames - docker_filenames
 
     @abstractmethod
     def dockerize(self, folder, verbose=True):
@@ -597,4 +615,8 @@ if __name__ == "__main__":
         #     for conf in confs:
         #         kowalski.analyzer.get_hash_from_container(conf)
         # DEBUG: for testing filesystem diffs
+        one, two = kowalski.analyzer.compare_names()
+        #logging.info(one)
+        #logging.info(two)
+        logging.info(f"one: {len(one)}, two: {len(two)}")
         kowalski.analyzer.get_filesystem_differences()

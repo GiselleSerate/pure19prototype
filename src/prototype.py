@@ -23,8 +23,8 @@ PORT = 2222
 USERNAME = 'root'
 
 # # Ubuntu
-PORT = 3333
-USERNAME = 'squirrel'
+# PORT = 3333
+# USERNAME = 'squirrel'
 
 # # Ubuntu container
 # PORT = 1022
@@ -324,13 +324,14 @@ class SystemAnalyzer(ABC):
         logging.error(f"config differences are {config_differences}")
         return config_differences
 
-    def compare_names(self):
+    def compare_names(self, places):
         '''
-        Takes the set difference of the file names of the vm and the container.
+        Takes an iterable of folders to look in for differences.
+        Returns a tuple of filenames only on the container and filenames only on the VM.
         '''
         docker_filenames = set()
         vm_filenames = set()
-        for folder in ['/bin', '/etc', '/lib', '/opt', '/sbin', '/usr']:
+        for folder in places:
             _, stdout, _ = self.ssh_client.exec_command(f"find {folder}")
             for line in stdout:
                 vm_filenames.add(line.strip())
@@ -339,8 +340,8 @@ class SystemAnalyzer(ABC):
             output = container.logs().decode()
             for line in output.split():
                 docker_filenames.add(line)
-        logging.info(f"total number of files in vm is {len(vm_filenames)}")
-        logging.info(f"total number of files in container is {len(docker_filenames)}")
+        logging.debug(f"The total number of files in the VM is {len(vm_filenames)}")
+        logging.debug(f"The total number of files in the container is {len(docker_filenames)}")
         return docker_filenames - vm_filenames, vm_filenames - docker_filenames
 
     @abstractmethod
@@ -608,6 +609,7 @@ if __name__ == "__main__":
         for mode in (SystemAnalyzer.Mode.dry, SystemAnalyzer.Mode.unversion, SystemAnalyzer.Mode.delete):
             if kowalski.analyzer.verify_packages(mode=mode):
                 break
+        # kowalski.analyzer.verify_packages(mode=SystemAnalyzer.Mode.dry) # DEBUG: only do a dry verify for speedy mcspeedness
         kowalski.analyzer.dockerize(tempfile.mkdtemp())
         # DEBUG: for testing config hashing
         # for pkg in kowalski.analyzer.packages:
@@ -615,8 +617,10 @@ if __name__ == "__main__":
         #     for conf in confs:
         #         kowalski.analyzer.get_hash_from_container(conf)
         # DEBUG: for testing filesystem diffs
-        one, two = kowalski.analyzer.compare_names()
-        #logging.info(one)
-        #logging.info(two)
-        logging.info(f"one: {len(one)}, two: {len(two)}")
-        kowalski.analyzer.get_filesystem_differences()
+        unique = {}
+        for place in ['/bin', '/etc', '/lib', '/opt', '/sbin', '/usr']:
+            unique[place] = kowalski.analyzer.compare_names([place])
+        # Print report
+        for place, diff_tuple in unique.items():
+            logging.info(f"{place} has {len(diff_tuple[0])} files unique to container, {len(diff_tuple[1])} files unique to VM")
+        # kowalski.analyzer.get_filesystem_differences()

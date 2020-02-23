@@ -129,6 +129,9 @@ class SystemAnalyzer(ABC):
         logging.info(f"Pulled {self.image} from Docker hub.")
 
         self.packages = {}
+        # Keyed on path, each contains dictionary: {'hash': hash, 'size': size}
+        self.vm_hashes = {}
+        self.container_hashes = {}
 
         self.tempdir = tempfile.mkdtemp()
 
@@ -274,60 +277,90 @@ class SystemAnalyzer(ABC):
         return there == total
 
 
-    def get_hash_from_container(self, filepath):
+    def get_hash_from_container(self, filepath, is_directory=False):
         '''
         Given a filepath, returns a checksum of the indicated file.
+        You may also pass a space-separated list of files.
+        If your path is a directory, it must end in a slash. I don't check for this but you gotta. 
+        If is_directory is True, go into subdirectories, else assume it is a single file. 
         Target docker image must have cksum available for use.
         Must be called after verify_packages, as it relies on the container having
         already been built and its packages installed.
         '''
-        logging.debug(f"hashing default configuration file {filepath} from the container")
-        container = self.docker_client.containers.run(image=self.image.id, command=f"cksum {filepath}", detach=True)
+        logging.debug(f"Hashing filepath {filepath} from the container...")
+        if is_directory:
+            container = self.docker_client.containers.run(image=self.image.id, command=f"find {filepath} -type f -exec cksum '{{}}' \\;", detach=True)
+        else:
+            container = self.docker_client.containers.run(image=self.image.id, command=f"cksum {filepath}", detach=True)
         container.wait()
         output = container.logs().decode()
         if 'No such file' in output:
-            hash = None
-        else:
-            hash = output.split()[0]
-        logging.debug(hash)
+            raise FileNotFoundError(f"Container does not have the file {filepath}.")
+        # Extract hashes and sizes from output. 
+        lines = output.split('\n')
+        for line in lines:
+            if line == "":
+                continue
+            hash, size, file = line.split()
+            self.container_hashes[file] = {'hash': hash, 'size': size}
+        if is_directory:
+            # In this case, the returned hash would just be the last thing hashed; not meaningful, so don't return it. 
+            return None
         return hash
 
-    def get_hash_from_VM(self, filepath):
+    def get_hash_from_VM(self, filepath, is_directory=False):
         '''
-        Given a filepath, returns a checksum of the indicated file from a VM
+        Given a filepath, returns a checksum of the indicated file from a VM.
+        You may also pass a space-separated list of files. 
+        If your path is a directory, it must end in a slash. I don't check for this but you gotta. 
+        If is_directory is True, go into subdirectories, else assume it is a single file.
         '''
-        _, stdout, _ = self.ssh_client.exec_command(f'cksum {filepath}')
+        logging.debug(f"Hashing file {filepath} from the VM...")
+        if is_directory:
+            _, stdout, _ = self.ssh_client.exec_command(f"find {filepath} -type f -exec cksum '{{}}' \\;")
+        else:
+            _, stdout, _ = self.ssh_client.exec_command(f'cksum {filepath}')
         hash = None 
         for line in stdout:
             if 'No such file' in line:
-                return None
-            hash = line.split()[0]
-        logging.debug(hash)
+                raise FileNotFoundError(f"VM does not have the file {filepath}.")
+            if line == "":
+                continue
+            hash, size, file = line.split()
+            self.vm_hashes[file] = {'hash': hash, 'size': size}
+        if is_directory:
+            # In this case, the returned hash would just be the last thing hashed; not meaningful, so don't return it. 
+            return None
         return hash 
 
-    def get_filesystem_differences(self):
+    def get_config_differences(self):
         '''
         Returns a list of configuration files that are different by comparing their cksum hashes
         '''
         if not self.packages:
-            logging.error(f"attempted to get filesystem differences but has not run get_packages() yet")
+            logging.error(f"Attempted to get filesystem differences but haven't run get_packages() yet. Stopping.")
             return None
         config_differences = []
-        for pkg in self.packages: 
+        missing_configs = []
+        for pkg in self.packages:
             configs = self.get_config_files_for(pkg)
             for config in configs:
-                logging.error(f"hashing configuration file {config} from the VM")
-                hash_from_VM = self.get_hash_from_VM(config)
-                hash_from_container = self.get_hash_from_container(config)
-                if hash_from_container != hash_from_VM:
-                    config_differences.append(config)
-        logging.error(f"config differences are {config_differences}")
+                try:
+                    hash_from_VM = self.get_hash_from_VM(config)
+                    hash_from_container = self.get_hash_from_container(config)
+                    if hash_from_container != hash_from_VM:
+                        config_differences.append(config)
+                except FileNotFoundError as e:
+                    logging.warning(f"Configuration file {config} not hashed due to not being on both systems: {e}")
+                    missing_configs.append(config)
+        logging.info(f"Config differences are {config_differences}")
+        logging.info(f"Missing configs are {missing_configs}")
         return config_differences
 
     def compare_names(self, places):
         '''
         Takes an iterable of folders to look in for differences.
-        Returns a tuple of filenames only on the container and filenames only on the VM.
+        Returns a tuple of filenames only on the container, filenames on both, and filenames only on the VM.
         '''
         docker_filenames = set()
         vm_filenames = set()
@@ -342,7 +375,7 @@ class SystemAnalyzer(ABC):
                 docker_filenames.add(line)
         logging.debug(f"The total number of files in the VM is {len(vm_filenames)}")
         logging.debug(f"The total number of files in the container is {len(docker_filenames)}")
-        return docker_filenames - vm_filenames, vm_filenames - docker_filenames
+        return docker_filenames - vm_filenames, vm_filenames & docker_filenames, vm_filenames - docker_filenames
 
     @abstractmethod
     def dockerize(self, folder, verbose=True):
@@ -609,18 +642,20 @@ if __name__ == "__main__":
         for mode in (SystemAnalyzer.Mode.dry, SystemAnalyzer.Mode.unversion, SystemAnalyzer.Mode.delete):
             if kowalski.analyzer.verify_packages(mode=mode):
                 break
-        # kowalski.analyzer.verify_packages(mode=SystemAnalyzer.Mode.dry) # DEBUG: only do a dry verify for speedy mcspeedness
         kowalski.analyzer.dockerize(tempfile.mkdtemp())
-        # DEBUG: for testing config hashing
-        # for pkg in kowalski.analyzer.packages:
-        #     confs = kowalski.analyzer.get_config_files_for(pkg)
-        #     for conf in confs:
-        #         kowalski.analyzer.get_hash_from_container(conf)
-        # DEBUG: for testing filesystem diffs
         unique = {}
-        for place in ['/bin', '/etc', '/lib', '/opt', '/sbin', '/usr']:
+        for place in ['/bin/', '/etc/', '/lib/', '/opt/', '/sbin/', '/usr/']:
             unique[place] = kowalski.analyzer.compare_names([place])
-        # Print report
         for place, diff_tuple in unique.items():
-            logging.info(f"{place} has {len(diff_tuple[0])} files unique to container, {len(diff_tuple[1])} files unique to VM")
-        # kowalski.analyzer.get_filesystem_differences()
+            logging.info(f"{place} has {len(diff_tuple[0])} files unique to container, {len(diff_tuple[1])} files shared, {len(diff_tuple[2])} files unique to VM")
+            # Now cksum the shared ones
+            modified_files = []
+            spaced_places = ' '.join(diff_tuple[1])
+            kowalski.analyzer.get_hash_from_VM(spaced_places, is_directory=True)
+            kowalski.analyzer.get_hash_from_container(spaced_places, is_directory=True)
+            for file in diff_tuple[1]:
+                if kowalski.analyzer.container_hashes[file]["hash"] != kowalski.analyzer.vm_hashes[file]["hash"]:
+                    modified_files.append(file)
+            logging.info(f"These files in {place} were modified: {modified_files}")
+
+        kowalski.analyzer.get_config_differences()

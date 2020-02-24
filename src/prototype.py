@@ -315,6 +315,7 @@ class SystemAnalyzer(ABC):
             return None
         return hash
 
+
     def get_hash_from_VM(self, filepath, is_directory=False):
         '''
         Given a filepath, returns a checksum of the indicated file from a VM.
@@ -345,32 +346,68 @@ class SystemAnalyzer(ABC):
         if is_directory:
             # In this case, the returned hash would just be the last thing hashed; not meaningful, so don't return it. 
             return None
-        return hash 
+        return hash
+
+
+    def analyze_files(self, places):
+        '''
+        Analyze all subdirectories of places (list of directories). Determine how many are on the container/VM/both,
+        and of the files in common which are different. 
+        Currently we just dump everything to logs; eventually we may want to return some of this. 
+        '''
+        logging.info(f"Diffing subdirectories of {places}")
+        unique = {}
+        for place in places:
+            unique[place] = self.compare_names([place])
+        for place, diff_tuple in unique.items():
+            logging.info(f"{place} has {len(diff_tuple[0])} files unique to the container, {len(diff_tuple[1])} files shared, and {len(diff_tuple[2])} files unique to the VM")
+            # Now cksum the shared ones
+            modified_files = []
+            spaced_strs = group_strings(list(diff_tuple[1]))
+            for place_str in spaced_strs:
+                self.get_hash_from_container(place_str, is_directory=False)
+                self.get_hash_from_VM(place_str, is_directory=False)
+            for file in diff_tuple[1]:
+                container_h = self.container_hashes[file]["hash"]
+                vm_h = self.vm_hashes[file]["hash"]
+                if container_h != vm_h:
+                    modified_files.append(file)
+            logging.info(f"In {place}, {len(modified_files)} out of {len(diff_tuple[1])} files found on both systems were different.")
+            logging.debug(f"These files in {place} were different: {modified_files}")
+
 
     def get_config_differences(self):
         '''
-        Returns a list of configuration files that are different by comparing their cksum hashes and a list of config
-        files that were missing on one of the systems. 
+        Compares the checksums of all config files on the system.
+        Returns a set of configuration files that are different, a set of config
+        files that are missing on the VM, and a set of config files that are missing on the container. 
         '''
         if not self.packages:
-            logging.error(f"Attempted to get filesystem differences but haven't run get_packages() yet. Stopping.")
+            logging.error("Attempted to get config differences but haven't run get_packages() yet. Stopping.")
             return None
-        config_differences = []
-        missing_configs = []
+        logging.info("Getting config differences...")
+        config_differences = set()
+        not_vm_configs = set()
+        not_container_configs = set()
         for pkg in self.packages:
             configs = self.get_config_files_for(pkg)
             for config in configs:
                 try:
                     hash_from_VM = self.get_hash_from_VM(config)
-                    hash_from_container = self.get_hash_from_container(config)
-                    if hash_from_container != hash_from_VM:
-                        config_differences.append(config)
                 except FileNotFoundError as e:
-                    logging.warning(f"Configuration file {config} not hashed due to not being on both systems: {e}")
-                    missing_configs.append(config)
-        logging.info(f"Config differences are {config_differences}")
-        logging.info(f"Missing configs are {missing_configs}")
-        return config_differences, missing_configs
+                    not_vm_configs.add(config)
+                    continue
+                try:
+                    hash_from_container = self.get_hash_from_container(config)
+                except FileNotFoundError as e:
+                    not_container_configs.add(config)
+                    continue
+                if hash_from_container != hash_from_VM:
+                    config_differences.add(config)
+        logging.info(f"Config differences ({len(config_differences)}) are {config_differences}")
+        logging.info(f"Configs missing on vm ({len(not_vm_configs)}) are {not_vm_configs}")
+        logging.info(f"Configs missing on container ({len(not_container_configs)}) are {not_container_configs}")
+        return config_differences, not_vm_configs, not_container_configs
 
     def compare_names(self, places):
         '''
@@ -672,23 +709,5 @@ if __name__ == "__main__":
             if kowalski.analyzer.verify_packages(mode=mode):
                 break
         kowalski.analyzer.dockerize(tempfile.mkdtemp())
-        unique = {}
-        for place in ['/bin/', '/etc/', '/lib/', '/opt/', '/sbin/', '/usr/']:
-            unique[place] = kowalski.analyzer.compare_names([place])
-        for place, diff_tuple in unique.items():
-            logging.info(f"{place} has {len(diff_tuple[0])} files unique to the container, {len(diff_tuple[1])} files shared, and {len(diff_tuple[2])} files unique to the VM")
-            # Now cksum the shared ones
-            modified_files = []
-            spaced_strs = group_strings(list(diff_tuple[1]))
-            for place_str in spaced_strs:
-                kowalski.analyzer.get_hash_from_container(place_str, is_directory=False)
-                kowalski.analyzer.get_hash_from_VM(place_str, is_directory=False)
-            for file in diff_tuple[1]:
-                container_h = kowalski.analyzer.container_hashes[file]["hash"]
-                vm_h = kowalski.analyzer.vm_hashes[file]["hash"]
-                if container_h != vm_h:
-                    modified_files.append(file)
-            logging.info(f"In {place}, {len(modified_files)} out of {len(diff_tuple[1])} files found on both systems were different.")
-            logging.debug(f"These files in {place} were different: {modified_files}")
-
+        kowalski.analyzer.analyze_files(['/bin/', '/etc/', '/lib/', '/opt/', '/sbin/', '/usr/'])
         kowalski.analyzer.get_config_differences()

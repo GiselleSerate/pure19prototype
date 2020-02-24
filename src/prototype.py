@@ -287,6 +287,9 @@ class SystemAnalyzer(ABC):
         Must be called after verify_packages, as it relies on the container having
         already been built and its packages installed.
         '''
+        if not filepath:
+            logging.warning("Please pass a filepath.")
+            return None
         logging.debug(f"Hashing filepath {filepath} from the container...")
         if is_directory:
             container = self.docker_client.containers.run(image=self.image.id, command=f"find {filepath} -type f -exec cksum '{{}}' \\;", detach=True)
@@ -301,8 +304,12 @@ class SystemAnalyzer(ABC):
         for line in lines:
             if line == "":
                 continue
-            hash, size, file = line.split()
-            self.container_hashes[file] = {'hash': hash, 'size': size}
+            try:
+                hash, size, file = line.split()
+                self.container_hashes[file] = {'hash': hash, 'size': size}
+            except ValueError:
+                logging.error(f"Unexpected number of values returned from line: {line.split()}")
+                raise
         if is_directory:
             # In this case, the returned hash would just be the last thing hashed; not meaningful, so don't return it. 
             return None
@@ -315,6 +322,9 @@ class SystemAnalyzer(ABC):
         If your path is a directory, it must end in a slash. I don't check for this but you gotta. 
         If is_directory is True, go into subdirectories, else assume it is a single file.
         '''
+        if not filepath:
+            logging.warning("Please pass a filepath.")
+            return None
         logging.debug(f"Hashing file {filepath} from the VM...")
         if is_directory:
             _, stdout, _ = self.ssh_client.exec_command(f"find {filepath} -type f -exec cksum '{{}}' \\;")
@@ -326,8 +336,12 @@ class SystemAnalyzer(ABC):
                 raise FileNotFoundError(f"VM does not have the file {filepath}.")
             if line == "":
                 continue
-            hash, size, file = line.split()
-            self.vm_hashes[file] = {'hash': hash, 'size': size}
+            try:
+                hash, size, file = line.split()
+                self.vm_hashes[file] = {'hash': hash, 'size': size}
+            except ValueError:
+                logging.error(f"Unexpected number of values returned from line: {line.split()}")
+                raise
         if is_directory:
             # In this case, the returned hash would just be the last thing hashed; not meaningful, so don't return it. 
             return None
@@ -335,7 +349,8 @@ class SystemAnalyzer(ABC):
 
     def get_config_differences(self):
         '''
-        Returns a list of configuration files that are different by comparing their cksum hashes
+        Returns a list of configuration files that are different by comparing their cksum hashes and a list of config
+        files that were missing on one of the systems. 
         '''
         if not self.packages:
             logging.error(f"Attempted to get filesystem differences but haven't run get_packages() yet. Stopping.")
@@ -355,7 +370,7 @@ class SystemAnalyzer(ABC):
                     missing_configs.append(config)
         logging.info(f"Config differences are {config_differences}")
         logging.info(f"Missing configs are {missing_configs}")
-        return config_differences
+        return config_differences, missing_configs
 
     def compare_names(self, places):
         '''
@@ -365,10 +380,10 @@ class SystemAnalyzer(ABC):
         docker_filenames = set()
         vm_filenames = set()
         for folder in places:
-            _, stdout, _ = self.ssh_client.exec_command(f"find {folder}")
+            _, stdout, _ = self.ssh_client.exec_command(f"find {folder} -type f")
             for line in stdout:
                 vm_filenames.add(line.strip())
-            container = self.docker_client.containers.run(image=self.image.id, command=f"find {folder}", detach=True)
+            container = self.docker_client.containers.run(image=self.image.id, command=f"find {folder} -type f", detach=True)
             container.wait()
             output = container.logs().decode()
             for line in output.split():
@@ -634,6 +649,20 @@ class UbuntuAnalyzer(SystemAnalyzer):
             logging.info(f"Your Dockerfile is in {folder}")
 
 
+def group_strings(indexable, number=1000):
+    '''
+    Group the indexable into a set of space-separated strings. There will be number items in each
+    string (possibly fewer in the last one filled).
+    1000 as a default was set by experimentation, as 4200 files at once was too much for the VM to handle. 
+    It's possible you can find a tighter bound, but 1000 seems safe. 
+    '''
+    return_set = set()
+    # Upper limit for the index
+    top = len(indexable) - (len(indexable) % number or number) + 1
+    for first_index in range(0, top, number):
+        return_set.add(' '.join(indexable[first_index:first_index + number]))
+    return return_set
+
 if __name__ == "__main__":
     logging.info('Beginning analysis...')
     with GeneralAnalyzer(hostname=HOSTNAME, port=PORT, username=USERNAME) as kowalski:
@@ -647,15 +676,19 @@ if __name__ == "__main__":
         for place in ['/bin/', '/etc/', '/lib/', '/opt/', '/sbin/', '/usr/']:
             unique[place] = kowalski.analyzer.compare_names([place])
         for place, diff_tuple in unique.items():
-            logging.info(f"{place} has {len(diff_tuple[0])} files unique to container, {len(diff_tuple[1])} files shared, {len(diff_tuple[2])} files unique to VM")
+            logging.info(f"{place} has {len(diff_tuple[0])} files unique to the container, {len(diff_tuple[1])} files shared, and {len(diff_tuple[2])} files unique to the VM")
             # Now cksum the shared ones
             modified_files = []
-            spaced_places = ' '.join(diff_tuple[1])
-            kowalski.analyzer.get_hash_from_VM(spaced_places, is_directory=True)
-            kowalski.analyzer.get_hash_from_container(spaced_places, is_directory=True)
+            spaced_strs = group_strings(list(diff_tuple[1]))
+            for place_str in spaced_strs:
+                kowalski.analyzer.get_hash_from_container(place_str, is_directory=False)
+                kowalski.analyzer.get_hash_from_VM(place_str, is_directory=False)
             for file in diff_tuple[1]:
-                if kowalski.analyzer.container_hashes[file]["hash"] != kowalski.analyzer.vm_hashes[file]["hash"]:
+                container_h = kowalski.analyzer.container_hashes[file]["hash"]
+                vm_h = kowalski.analyzer.vm_hashes[file]["hash"]
+                if container_h != vm_h:
                     modified_files.append(file)
-            logging.info(f"These files in {place} were modified: {modified_files}")
+            logging.info(f"In {place}, {len(modified_files)} out of {len(diff_tuple[1])} files found on both systems were different.")
+            logging.debug(f"These files in {place} were different: {modified_files}")
 
         kowalski.analyzer.get_config_differences()

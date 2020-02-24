@@ -6,7 +6,7 @@ from src.prototype import GeneralAnalyzer, SystemAnalyzer
 # Constants (which we can move into a config file later)
 HOSTNAME = '127.0.0.1'
 
-def test_integration_basic_build_centos():
+def test_local_basic_build_centos():
     '''
     Test that all packages from our CentOS system can be installed
     (first try with the specified version for all; failing that, try latest).
@@ -25,7 +25,7 @@ def test_integration_basic_build_centos():
             no_wrong_packages = kowalski.analyzer.verify_packages(mode=SystemAnalyzer.Mode.dry)
             assert no_wrong_packages
 
-def test_integration_basic_build_ubuntu():
+def test_local_basic_build_ubuntu():
     '''
     Test that all packages from our ubuntu system can be installed
     (first try with the specified version for all; failing that, try latest).

@@ -8,7 +8,7 @@ import re
 import tempfile
 
 import docker
-from paramiko import SSHClient
+from paramiko import AutoAddPolicy, SSHClient
 
 
 
@@ -26,6 +26,10 @@ USERNAME = 'squirrel'
 
 # Ubuntu container
 PORT = 1022
+USERNAME = 'sshuser'
+
+# Centos container
+PORT = 1222
 USERNAME = 'sshuser'
 
 
@@ -49,8 +53,10 @@ dictConfig({
 
 class GeneralAnalyzer:
     '''Does all analysis of a system that you know nothing about.'''
-    def __init__(self, hostname=HOSTNAME, port=PORT, username=USERNAME):
+    def __init__(self, hostname=HOSTNAME, port=PORT, username=USERNAME, auto_add=False):
         self.ssh_client = SSHClient()
+        if auto_add:
+            self.ssh_client.set_missing_host_key_policy(AutoAddPolicy())
         self.hostname = hostname
         self.port = port
         self.username = username

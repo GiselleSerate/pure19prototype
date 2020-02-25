@@ -1,0 +1,7 @@
+{
+    "settings":
+    {
+        "SublimeLinter.linters.pylint.disable": false
+        "SublimeLinter.linters.pylint.python": ".env/bin/python"
+    }
+}

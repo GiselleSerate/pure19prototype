@@ -42,14 +42,34 @@ USERNAME = 'root'
 # Configure logging
 dictConfig({
     'version': 1,
-    'formatters': {'default': {
-        'format': '%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
-    }},
-    'handlers': {'wsgi': {
-        'class': 'logging.StreamHandler',
-        'stream': 'ext://sys.stdout',
-        'formatter': 'default'
-    }},
+    'formatters': {
+        'default': {
+            'format': '%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
+        },
+        'minimal': {
+            'format': '[%(filename)s:%(lineno)d] %(message)s',
+        }
+    },
+    'handlers': {
+        'wsgi': {
+            'class': 'logging.StreamHandler',
+            'stream': 'ext://sys.stdout',
+            'formatter': 'default'
+        },
+        'filehandler': {
+            'class': 'logging.FileHandler',
+            'filename': 'log/pure_prototype_files.log',
+            'mode': 'w',
+            'level': 'DEBUG',
+            'formatter': 'minimal'
+        }
+    },
+    'loggers': {
+        'filenames': {
+            'propagate': False,
+            'handlers': ['filehandler']
+        }
+    },
     'root': {
         'level': LOG_LEVEL,
         'handlers': ['wsgi']
@@ -147,6 +167,8 @@ class SystemAnalyzer(ABC):
         self.container_hashes = {}
 
         self.tempdir = tempfile.mkdtemp()
+
+        self.file_logger = logging.getLogger('filenames')
 
 
     @property
@@ -394,6 +416,11 @@ class SystemAnalyzer(ABC):
             logging.info(f"{place} has {len(diff_tuple[0])} files unique to the container, "
                          f"{len(diff_tuple[1])} files shared, and {len(diff_tuple[2])} files "
                          "unique to the VM")
+            self.file_logger.debug(f"PLACE: {place}")
+            self.file_logger.debug(f"Just container ({len(diff_tuple[0])}):\n"
+                                 f"{diff_tuple[0]}")
+            self.file_logger.debug(f"Shared ({len(diff_tuple[1])}):\n{diff_tuple[1]}")
+            self.file_logger.debug(f"Just VM ({len(diff_tuple[2])}):\n{diff_tuple[2]}")
             # Now cksum the shared ones
             modified_files = []
             spaced_strs = group_strings(list(diff_tuple[1]))
@@ -408,6 +435,8 @@ class SystemAnalyzer(ABC):
             logging.info(f"In {place}, {len(modified_files)} out of {len(diff_tuple[1])} files "
                          f"found on both systems were different.")
             logging.debug(f"These files in {place} were different: {modified_files}")
+            self.file_logger.debug(f"Same name, but different cksum "
+                                   f"({len(modified_files)}):\n{modified_files}")
 
 
     def get_config_differences(self):
@@ -444,6 +473,12 @@ class SystemAnalyzer(ABC):
         logging.info(f"Configs missing on vm ({len(not_vm_configs)}) are {not_vm_configs}")
         logging.info(f"Configs missing on container ({len(not_container_configs)}) are "
                      f"{not_container_configs}")
+        self.file_logger.debug(f"Config differences ({len(config_differences)}):\n"
+                               f"{config_differences}")
+        self.file_logger.debug(f"Configs missing on vm ({len(not_vm_configs)}):\n"
+                               f"{not_vm_configs}")
+        self.file_logger.debug(f"Configs missing on container "
+                               f"({len(not_container_configs)}):\n{not_container_configs}")
         return config_differences, not_vm_configs, not_container_configs
 
     def compare_names(self, places):

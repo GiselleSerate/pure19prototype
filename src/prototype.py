@@ -30,9 +30,9 @@ LOG_LEVEL = 'INFO'
 PORT = 2222
 USERNAME = 'root'
 
-# # Ubuntu
-# PORT = 3333
-# USERNAME = 'squirrel'
+# Ubuntu
+PORT = 3333
+USERNAME = 'root'
 
 # # Ubuntu container
 # PORT = 1022
@@ -416,11 +416,11 @@ class SystemAnalyzer(ABC):
             logging.info(f"{place} has {len(diff_tuple[0])} files unique to the container, "
                          f"{len(diff_tuple[1])} files shared, and {len(diff_tuple[2])} files "
                          "unique to the VM")
-            self.file_logger.debug(f"PLACE: {place}")
-            self.file_logger.debug(f"Just container ({len(diff_tuple[0])}):\n"
+            self.file_logger.info(f"PLACE: {place}")
+            self.file_logger.info(f"Just container ({len(diff_tuple[0])}):\n"
                                  f"{diff_tuple[0]}")
-            self.file_logger.debug(f"Shared ({len(diff_tuple[1])}):\n{diff_tuple[1]}")
-            self.file_logger.debug(f"Just VM ({len(diff_tuple[2])}):\n{diff_tuple[2]}")
+            self.file_logger.info(f"Shared ({len(diff_tuple[1])}):\n{diff_tuple[1]}")
+            self.file_logger.info(f"Just VM ({len(diff_tuple[2])}):\n{diff_tuple[2]}")
             # Now cksum the shared ones
             modified_files = []
             spaced_strs = group_strings(list(diff_tuple[1]))
@@ -435,7 +435,7 @@ class SystemAnalyzer(ABC):
             logging.info(f"In {place}, {len(modified_files)} out of {len(diff_tuple[1])} files "
                          f"found on both systems were different.")
             logging.debug(f"These files in {place} were different: {modified_files}")
-            self.file_logger.debug(f"Same name, but different cksum "
+            self.file_logger.info(f"Same name, but different cksum "
                                    f"({len(modified_files)}):\n{modified_files}")
 
 
@@ -454,30 +454,43 @@ class SystemAnalyzer(ABC):
         config_differences = set()
         not_vm_configs = set()
         not_container_configs = set()
+        num_vm_configs = 0
+        num_container_configs = 0
+        num_same_configs = 0
         for pkg in self.packages:
             configs = self.get_config_files_for(pkg)
             for config in configs:
                 try:
                     hash_from_VM = self.get_hash_from_VM(config)
+                    num_vm_configs += 1
                 except FileNotFoundError:
                     not_vm_configs.add(config)
                     continue
                 try:
                     hash_from_container = self.get_hash_from_container(config)
+                    num_container_configs += 1
                 except FileNotFoundError:
                     not_container_configs.add(config)
                     continue
                 if hash_from_container != hash_from_VM:
                     config_differences.add(config)
+                else:
+                    num_same_configs += 1
+        logging.info(f"Number of configs on vm: {num_vm_configs}")
+        logging.info(f"Number of configs on container: {num_container_configs}")
+        logging.info(f"Number of same config files: {num_same_configs}")
         logging.info(f"Config differences ({len(config_differences)}) are {config_differences}")
         logging.info(f"Configs missing on vm ({len(not_vm_configs)}) are {not_vm_configs}")
         logging.info(f"Configs missing on container ({len(not_container_configs)}) are "
                      f"{not_container_configs}")
-        self.file_logger.debug(f"Config differences ({len(config_differences)}):\n"
+        self.file_logger.info(f"Number of configs on vm: {num_vm_configs}")
+        self.file_logger.info(f"Number of configs on container: {num_container_configs}")
+        self.file_logger.info(f"Number of identical configs on both vm and container: {num_same_configs}")
+        self.file_logger.info(f"Config differences ({len(config_differences)}):\n"
                                f"{config_differences}")
-        self.file_logger.debug(f"Configs missing on vm ({len(not_vm_configs)}):\n"
+        self.file_logger.info(f"Configs missing on vm ({len(not_vm_configs)}):\n"
                                f"{not_vm_configs}")
-        self.file_logger.debug(f"Configs missing on container "
+        self.file_logger.info(f"Configs missing on container "
                                f"({len(not_container_configs)}):\n{not_container_configs}")
         return config_differences, not_vm_configs, not_container_configs
 

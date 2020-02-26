@@ -20,7 +20,7 @@ import tempfile
 import docker
 from paramiko import SSHClient
 
-from demo_utils import pause
+from demo_utils import demo_pause
 
 
 
@@ -82,6 +82,7 @@ dictConfig({
 class GeneralAnalyzer:
     '''Does all analysis of a system that you know nothing about.'''
     def __init__(self, hostname=HOSTNAME, port=PORT, username=USERNAME):
+        demo_pause("Create and connect to VM over SSH and Docker client")
         self.ssh_client = SSHClient()
         self.hostname = hostname
         self.port = port
@@ -116,6 +117,7 @@ class GeneralAnalyzer:
         '''
         Gets the operating system and version of the target system.
         '''
+        demo_pause("Detect OS and create a sub-analyzer of that type")
         logging.info("Getting operating system and version...")
         _, stdout, _ = self.ssh_client.exec_command('cat /etc/os-release')
         # Extract operating system and version
@@ -195,6 +197,7 @@ class SystemAnalyzer(ABC):
         '''
         Gets all packages and versions from the target system and puts them in self.packages.
         '''
+        demo_pause("Get all packages on the target system")
         logging.info("Getting packages...")
 
 
@@ -253,6 +256,7 @@ class SystemAnalyzer(ABC):
         '''
         Removes packages from the list to be installed which are already in the base image.
         '''
+        demo_pause("Remove default-installed packages from the list to be installed")
         logging.info("Filtering packages...")
         num_packages = len(self.packages)
         if num_packages == 0:
@@ -281,6 +285,7 @@ class SystemAnalyzer(ABC):
                 in unversion mode, unspecify version.
         Returns True if all packages got installed correctly; returns False otherwise.
         '''
+        demo_pause(f"Verify packages in {mode.name} mode")
         logging.info(f"Verifying packages in {mode.name} mode...")
         self.dockerize(self.tempdir, verbose=False)
         # Now that we have a Dockerfile, build and check the packages are there
@@ -410,6 +415,7 @@ class SystemAnalyzer(ABC):
         container/VM/both, and of the files in common which are different.
         Currently we just dump everything to logs; eventually we may want to return some of this.
         '''
+        demo_pause(f"Look at {places} and subdirs to find differences")
         logging.info(f"Diffing subdirectories of {places}")
         unique = {}
         for place in places:
@@ -448,6 +454,7 @@ class SystemAnalyzer(ABC):
         files that are missing on the VM, and a set of config files that are missing on the
         container.
         '''
+        demo_pause("Check all config files for differences")
         if not self.packages:
             logging.error("Attempted to get config differences but haven't run get_packages() yet. "
                           "Stopping.")
@@ -518,6 +525,7 @@ class SystemAnalyzer(ABC):
         verbose -- whether to emit log statements
         '''
         if verbose:
+            demo_pause("Create Dockerfile")
             logging.info("Creating Dockerfile...")
 
 
@@ -712,6 +720,7 @@ class UbuntuAnalyzer(SystemAnalyzer):
                 in unversion mode, unspecify version.
         Returns True if all packages got installed correctly; returns False otherwise.
         '''
+        demo_pause(f"Verify packages in {mode.name} mode")
         logging.info(f"Verifying packages in {mode.name} mode...")
         # Write prelude, create image.
         with open(os.path.join(self.tempdir, 'Dockerfile'), 'w') as dockerfile:
@@ -800,8 +809,7 @@ def group_strings(indexable, number=1000):
     return return_set
 
 if __name__ == "__main__":
-    pause(next_step="Noooop", last_step="Yeeet")
-    pause(next_step="Hehe", last_step="Noooop")
+    demo_pause("Create GeneralAnalyzer")
     logging.info('Beginning analysis...')
     with GeneralAnalyzer(hostname=HOSTNAME, port=PORT, username=USERNAME) as kowalski:
         kowalski.analyzer.get_packages()
@@ -809,6 +817,7 @@ if __name__ == "__main__":
         for md in (SystemAnalyzer.Mode.dry, SystemAnalyzer.Mode.unversion,
                    SystemAnalyzer.Mode.delete):
             if kowalski.analyzer.verify_packages(mode=md):
+                demo_pause(f"Move on from verifying, since mode {md.name} succeeded")
                 break
         kowalski.analyzer.dockerize(tempfile.mkdtemp())
         kowalski.analyzer.analyze_files(['/bin/', '/etc/', '/lib/', '/opt/', '/sbin/', '/usr/'])

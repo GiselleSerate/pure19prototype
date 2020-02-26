@@ -20,6 +20,8 @@ import tempfile
 import docker
 from paramiko import SSHClient
 
+from demo_utils import pause
+
 
 
 # Constants (which we can move into a config file later)
@@ -58,7 +60,7 @@ dictConfig({
         },
         'filehandler': {
             'class': 'logging.FileHandler',
-            'filename': 'log/pure_prototype_files.log',
+            'filename': 'pure_prototype_files.log',
             'mode': 'w',
             'level': 'DEBUG',
             'formatter': 'minimal'
@@ -798,6 +800,8 @@ def group_strings(indexable, number=1000):
     return return_set
 
 if __name__ == "__main__":
+    pause(next_step="Noooop", last_step="Yeeet")
+    pause(next_step="Hehe", last_step="Noooop")
     logging.info('Beginning analysis...')
     with GeneralAnalyzer(hostname=HOSTNAME, port=PORT, username=USERNAME) as kowalski:
         kowalski.analyzer.get_packages()

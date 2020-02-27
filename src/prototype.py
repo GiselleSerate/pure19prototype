@@ -32,9 +32,9 @@ LOG_LEVEL = 'INFO'
 PORT = 2222
 USERNAME = 'root'
 
-# Ubuntu
-PORT = 3333
-USERNAME = 'root'
+# # Ubuntu
+# PORT = 3333
+# USERNAME = 'root'
 
 # # Ubuntu container
 # PORT = 1022

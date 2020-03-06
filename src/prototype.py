@@ -163,8 +163,11 @@ class SystemAnalyzer(ABC):
 
         # All packages on the system
         self.all_packages = {}
-        # Only the packages we want to install
+        # Only (and all) the packages we want to install
         self.install_packages = {}
+        # A list of packages (and their new versions) that we installed on a version
+        # number different from the original system
+        self.unversion_packages = {}
 
         # Keyed on path, each contains dictionary: {'hash': hash, 'size': size}
         self.vm_hashes = {}
@@ -251,9 +254,10 @@ class SystemAnalyzer(ABC):
             logging.debug(line.rstrip())
 
 
-    def filter_packages(self):
+    def filter_packages(self, strict_versioning=False):
         '''
         Removes packages from the list to be installed which are already in the base image.
+        strict_versioning -- if True, we'll only remove the package if the versions match
         Note that we leave them (and their versions) in self.all_packages
         '''
         logging.info("Filtering packages...")
@@ -267,12 +271,19 @@ class SystemAnalyzer(ABC):
                                                            type(self).LIST_INSTALLED, remove=True)
         # Last element is a blank line; remove it.
         pkg_list = pkg_bytestring.decode().split('\n')[:-1]
-        default_packages = type(self).parse_all_pkgs(pkg_list).keys()
+        default_packages = type(self).parse_all_pkgs(pkg_list)
         # Delete default packages from what we'll install
-        for pkg_name in default_packages:
+        for pkg_name, pkg_ver in default_packages.items():
             try:
-                del self.install_packages[pkg_name]
+                existing_version = self.install_packages[pkg_name]
+                # If we don't care about version mismatch (or there is none)
+                if not strict_versioning or existing_version == pkg_ver:
+                    del self.install_packages[pkg_name]
+                    if not strict_versioning:
+                        # Record mismatch
+                        self.unversion_packages[pkg_name] = pkg_ver
             except KeyError:
+                # Package not slated to be installed anyway
                 pass
         logging.info(f"Removing defaults cut down {num_packages} packages to "
                      f"{len(self.install_packages)}.")

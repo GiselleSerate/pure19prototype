@@ -31,8 +31,8 @@ PORT = 2222
 USERNAME = 'root'
 
 # Ubuntu
-PORT = 3333
-USERNAME = 'root'
+# PORT = 3333
+# USERNAME = 'root'
 
 # # Ubuntu container
 # PORT = 1022
@@ -161,7 +161,11 @@ class SystemAnalyzer(ABC):
         self.image = self.docker_client.images.pull(f"{operating_sys}:{version}")
         logging.info(f"Pulled {self.image} from Docker hub.")
 
-        self.packages = {}
+        # All packages on the system
+        self.all_packages = {}
+        # Only the packages we want to install
+        self.install_packages = {}
+
         # Keyed on path, each contains dictionary: {'hash': hash, 'size': size}
         self.vm_hashes = {}
         self.container_hashes = {}
@@ -250,9 +254,10 @@ class SystemAnalyzer(ABC):
     def filter_packages(self):
         '''
         Removes packages from the list to be installed which are already in the base image.
+        Note that we leave them (and their versions) in self.all_packages
         '''
         logging.info("Filtering packages...")
-        num_packages = len(self.packages)
+        num_packages = len(self.all_packages)
         if num_packages == 0:
             logging.warning("No packages yet. Have you run get_packages?")
             return
@@ -266,10 +271,11 @@ class SystemAnalyzer(ABC):
         # Delete default packages from what we'll install
         for pkg_name in default_packages:
             try:
-                del self.packages[pkg_name]
+                del self.install_packages[pkg_name]
             except KeyError:
                 pass
-        logging.info(f"Removing defaults cut down {num_packages} packages to {len(self.packages)}.")
+        logging.info(f"Removing defaults cut down {num_packages} packages to "
+                     f"{len(self.install_packages)}.")
 
 
     def verify_packages(self, mode=Mode.dry):
@@ -296,7 +302,7 @@ class SystemAnalyzer(ABC):
         there = 0
         total = 0
         missing = []
-        for package in self.packages:
+        for package in self.install_packages:
             if package in output:
                 there += 1
             else:
@@ -309,11 +315,11 @@ class SystemAnalyzer(ABC):
             if mode == self.Mode.unversion:
                 logging.info(f"Now removing version numbers from bad packages...")
                 for pkg_name in missing:
-                    self.packages[pkg_name] = False
+                    self.install_packages[pkg_name] = False # TODO: I know we're going to change this later
             elif mode == self.Mode.delete:
                 logging.info(f"Now removing bad packages...")
                 for pkg_name in missing:
-                    del self.packages[pkg_name]
+                    del self.install_packages[pkg_name]
         else:
             logging.info(f"All {total} packages installed properly.")
 
@@ -367,7 +373,7 @@ class SystemAnalyzer(ABC):
         return crc
 
 
-    def get_hash_from_VM(self, filepath, is_directory=False):
+    def get_hash_from_vm(self, filepath, is_directory=False):
         '''
         Given a filepath, returns a checksum of the indicated file from a VM.
         You may also pass a space-separated list of files.
@@ -418,7 +424,7 @@ class SystemAnalyzer(ABC):
                          "unique to the VM")
             self.file_logger.info(f"PLACE: {place}")
             self.file_logger.info(f"Just container ({len(diff_tuple[0])}):\n"
-                                 f"{diff_tuple[0]}")
+                                  f"{diff_tuple[0]}")
             self.file_logger.info(f"Shared ({len(diff_tuple[1])}):\n{diff_tuple[1]}")
             self.file_logger.info(f"Just VM ({len(diff_tuple[2])}):\n{diff_tuple[2]}")
             # Now cksum the shared ones
@@ -426,7 +432,7 @@ class SystemAnalyzer(ABC):
             spaced_strs = group_strings(list(diff_tuple[1]))
             for place_str in spaced_strs:
                 self.get_hash_from_container(place_str, is_directory=False)
-                self.get_hash_from_VM(place_str, is_directory=False)
+                self.get_hash_from_vm(place_str, is_directory=False)
             for file in diff_tuple[1]:
                 container_h = self.container_hashes[file]["hash"]
                 vm_h = self.vm_hashes[file]["hash"]
@@ -436,7 +442,7 @@ class SystemAnalyzer(ABC):
                          f"found on both systems were different.")
             logging.debug(f"These files in {place} were different: {modified_files}")
             self.file_logger.info(f"Same name, but different cksum "
-                                   f"({len(modified_files)}):\n{modified_files}")
+                                  f"({len(modified_files)}):\n{modified_files}")
 
 
     def get_config_differences(self):
@@ -446,7 +452,7 @@ class SystemAnalyzer(ABC):
         files that are missing on the VM, and a set of config files that are missing on the
         container.
         '''
-        if not self.packages:
+        if not self.all_packages:
             logging.error("Attempted to get config differences but haven't run get_packages() yet. "
                           "Stopping.")
             return None
@@ -457,11 +463,11 @@ class SystemAnalyzer(ABC):
         num_vm_configs = 0
         num_container_configs = 0
         num_same_configs = 0
-        for pkg in self.packages:
+        for pkg in self.all_packages:
             configs = self.get_config_files_for(pkg)
             for config in configs:
                 try:
-                    hash_from_VM = self.get_hash_from_VM(config)
+                    hash_from_vm = self.get_hash_from_vm(config)
                     num_vm_configs += 1
                 except FileNotFoundError:
                     not_vm_configs.add(config)
@@ -472,7 +478,7 @@ class SystemAnalyzer(ABC):
                 except FileNotFoundError:
                     not_container_configs.add(config)
                     continue
-                if hash_from_container != hash_from_VM:
+                if hash_from_container != hash_from_vm:
                     config_differences.add(config)
                 else:
                     num_same_configs += 1
@@ -485,13 +491,14 @@ class SystemAnalyzer(ABC):
                      f"{not_container_configs}")
         self.file_logger.info(f"Number of configs on vm: {num_vm_configs}")
         self.file_logger.info(f"Number of configs on container: {num_container_configs}")
-        self.file_logger.info(f"Number of identical configs on both vm and container: {num_same_configs}")
+        self.file_logger.info(f"Number of identical configs on both vm and container: "
+                              f"{num_same_configs}")
         self.file_logger.info(f"Config differences ({len(config_differences)}):\n"
-                               f"{config_differences}")
+                              f"{config_differences}")
         self.file_logger.info(f"Configs missing on vm ({len(not_vm_configs)}):\n"
-                               f"{not_vm_configs}")
+                              f"{not_vm_configs}")
         self.file_logger.info(f"Configs missing on container "
-                               f"({len(not_container_configs)}):\n{not_container_configs}")
+                              f"({len(not_container_configs)}):\n{not_container_configs}")
         return config_differences, not_vm_configs, not_container_configs
 
     def compare_names(self, places):
@@ -576,8 +583,11 @@ class CentosAnalyzer(SystemAnalyzer):
         '''
         super().get_packages()
         _, stdout, _ = self.ssh_client.exec_command(CentosAnalyzer.LIST_INSTALLED)
-        self.packages = CentosAnalyzer.parse_all_pkgs(stdout)
-        logging.debug(self.packages)
+        self.all_packages = CentosAnalyzer.parse_all_pkgs(stdout)
+        # Note that this is a shallow copy; if you add more info to the dictionaries later on,
+        # you'll have to change this.
+        self.install_packages = self.all_packages.copy()
+        logging.debug(self.all_packages)
 
 
     def get_dependencies(self, package):
@@ -619,7 +629,7 @@ class CentosAnalyzer(SystemAnalyzer):
             dockerfile.write(f"FROM {self.operating_sys}:{self.version}\n")
 
             dockerfile.write(f"RUN yum -y install ")
-            for name, ver in self.packages.items():
+            for name, ver in self.install_packages.items():
                 if ver:
                     dockerfile.write(f"{name}-{ver} ")
                 else:
@@ -671,8 +681,11 @@ class UbuntuAnalyzer(SystemAnalyzer):
         '''
         super().get_packages()
         _, stdout, _ = self.ssh_client.exec_command(UbuntuAnalyzer.LIST_INSTALLED)
-        self.packages = UbuntuAnalyzer.parse_all_pkgs(stdout)
-        logging.debug(self.packages)
+        self.all_packages = UbuntuAnalyzer.parse_all_pkgs(stdout)
+        # Note that this is a shallow copy; if you add more info to the dictionaries later on,
+        # you'll have to change this.
+        self.install_packages = self.all_packages.copy()
+        logging.debug(self.all_packages)
 
 
     def get_dependencies(self, package):
@@ -709,7 +722,7 @@ class UbuntuAnalyzer(SystemAnalyzer):
         the string.
         '''
         install_all = ""
-        for name, ver in self.packages.items():
+        for name, ver in self.install_packages.items():
             if ver:
                 install_all += f"{name}={ver} "
             else:
@@ -763,11 +776,11 @@ class UbuntuAnalyzer(SystemAnalyzer):
         if mode == self.Mode.unversion:
             logging.info(f"Now removing version numbers from bad packages...")
             for pkg_name in missing_vers:
-                self.packages[pkg_name] = False
+                self.install_packages[pkg_name] = False
         elif mode == self.Mode.delete:
             logging.info(f"Now removing bad packages...")
             for pkg_name in itertools.chain(missing_pkgs, missing_vers):
-                del self.packages[pkg_name]
+                del self.install_packages[pkg_name]
 
         container.remove()
         return False

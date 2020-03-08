@@ -173,6 +173,11 @@ class SystemAnalyzer(ABC):
         self.vm_hashes = {}
         self.container_hashes = {}
 
+        # Specificallly config file differences
+        self.diff_configs = set()
+        self.vm_configs = set()
+        self.container_configs = set()
+
         self.tempdir = tempfile.mkdtemp()
 
         self.file_logger = logging.getLogger('filenames')
@@ -254,7 +259,7 @@ class SystemAnalyzer(ABC):
             logging.debug(line.rstrip())
 
 
-    def filter_packages(self, strict_versioning=False):
+    def filter_packages(self, strict_versioning=True):
         '''
         Removes packages from the list to be installed which are already in the base image.
         strict_versioning -- if True, we'll only remove the package if the versions match
@@ -459,58 +464,63 @@ class SystemAnalyzer(ABC):
     def get_config_differences(self):
         '''
         Compares the checksums of all config files on the system.
-        Returns a set of configuration files that are different, a set of config
-        files that are missing on the VM, and a set of config files that are missing on the
-        container.
+        Clears and repopulates self.diff_configs, self.vm_configs, and self.container_configs with
+        the appropriate files that are on both systems but different, on the VM (possibly also the
+        container), and on the container (possibly also the VMs).
+        Returns True if it succeeded, False otherwise.
         '''
         if not self.all_packages:
             logging.error("Attempted to get config differences but haven't run get_packages() yet. "
                           "Stopping.")
-            return None
+            return False
         logging.info("Getting config differences...")
-        config_differences = set()
-        not_vm_configs = set()
-        not_container_configs = set()
-        num_vm_configs = 0
-        num_container_configs = 0
-        num_same_configs = 0
+        # Clear configs (else if we run this twice and things have changed, could be confusing)
+        self.diff_configs = set()
+        self.vm_configs = set()
+        self.container_configs = set()
         for pkg in self.all_packages:
             configs = self.get_config_files_for(pkg)
             for config in configs:
+                vm_hash = None
+                container_hash = None
+                # If the file exists on the VM, save the hash
                 try:
-                    hash_from_vm = self.get_hash_from_vm(config)
-                    num_vm_configs += 1
+                    vm_hash = self.get_hash_from_vm(config)
+                    self.vm_configs.add(config)
                 except FileNotFoundError:
-                    not_vm_configs.add(config)
-                    continue
+                    pass
+                # If the file exists on the container, save the hash
                 try:
-                    hash_from_container = self.get_hash_from_container(config)
-                    num_container_configs += 1
+                    container_hash = self.get_hash_from_container(config)
+                    self.container_configs.add(config)
                 except FileNotFoundError:
-                    not_container_configs.add(config)
-                    continue
-                if hash_from_container != hash_from_vm:
-                    config_differences.add(config)
-                else:
-                    num_same_configs += 1
-        logging.info(f"Number of configs on vm: {num_vm_configs}")
-        logging.info(f"Number of configs on container: {num_container_configs}")
-        logging.info(f"Number of same config files: {num_same_configs}")
-        logging.info(f"Config differences ({len(config_differences)}) are {config_differences}")
-        logging.info(f"Configs missing on vm ({len(not_vm_configs)}) are {not_vm_configs}")
-        logging.info(f"Configs missing on container ({len(not_container_configs)}) are "
-                     f"{not_container_configs}")
-        self.file_logger.info(f"Number of configs on vm: {num_vm_configs}")
-        self.file_logger.info(f"Number of configs on container: {num_container_configs}")
+                    pass
+                # If we got both hashes, compare them
+                if vm_hash and container_hash and vm_hash != container_hash:
+                    self.diff_configs.add(config)
+        logging.info(f"Number of configs on vm: {len(self.vm_configs)}")
+        logging.info(f"Number of configs on container: {len(self.container_configs)}")
+        logging.info(f"Number of identical config files: "
+                     f"{len(self.vm_configs & self.container_configs - self.diff_configs)}")
+        logging.info(f"Config differences ({len(self.diff_configs)}) are {self.diff_configs}")
+        logging.info(f"Configs missing on vm ({len(self.container_configs - self.vm_configs)}) "
+                     f"are {self.container_configs - self.vm_configs}")
+        logging.info(f"Configs missing on container "
+                     f"({len(self.vm_configs - self.container_configs)}) are "
+                     f"{self.vm_configs - self.container_configs}")
+        self.file_logger.info(f"Number of configs on vm: {len(self.vm_configs)}")
+        self.file_logger.info(f"Number of configs on container: {len(self.container_configs)}")
         self.file_logger.info(f"Number of identical configs on both vm and container: "
-                              f"{num_same_configs}")
-        self.file_logger.info(f"Config differences ({len(config_differences)}):\n"
-                              f"{config_differences}")
-        self.file_logger.info(f"Configs missing on vm ({len(not_vm_configs)}):\n"
-                              f"{not_vm_configs}")
+                              f"{len(self.vm_configs & self.container_configs - self.diff_configs)}")
+        self.file_logger.info(f"Config differences ({len(self.diff_configs)}):\n"
+                              f"{self.diff_configs}")
+        self.file_logger.info(f"Configs missing on vm "
+                              f"({len(self.container_configs - self.vm_configs)}):\n"
+                              f"{self.container_configs - self.vm_configs}")
         self.file_logger.info(f"Configs missing on container "
-                              f"({len(not_container_configs)}):\n{not_container_configs}")
-        return config_differences, not_vm_configs, not_container_configs
+                              f"({len(self.vm_configs - self.container_configs)}):\n"
+                              f"{self.vm_configs - self.container_configs}")
+        return True
 
     def compare_names(self, places):
         '''
@@ -844,5 +854,5 @@ if __name__ == "__main__":
             if kowalski.analyzer.verify_packages(mode=md):
                 break
         kowalski.analyzer.dockerize(tempfile.mkdtemp())
-        kowalski.analyzer.analyze_files(['/bin/', '/etc/', '/lib/', '/opt/', '/sbin/', '/usr/'])
+        # kowalski.analyzer.analyze_files(['/bin/', '/etc/', '/lib/', '/opt/', '/sbin/', '/usr/'])
         kowalski.analyzer.get_config_differences()

@@ -370,6 +370,7 @@ class SystemAnalyzer(ABC):
         crc = None
         output = container.logs().decode()
         if 'No such file' in output:
+            logging.error(output) # TODO a debug line
             raise FileNotFoundError(f"Container does not have the file {filepath}.")
         # Extract hashes and sizes from output.
         lines = output.split('\n')
@@ -478,26 +479,34 @@ class SystemAnalyzer(ABC):
         self.diff_configs = set()
         self.vm_configs = set()
         self.container_configs = set()
+        # Populate full set of all config files on the system
+        configs = set()
         for pkg in self.all_packages:
-            configs = self.get_config_files_for(pkg)
-            for config in configs:
-                vm_hash = None
-                container_hash = None
-                # If the file exists on the VM, save the hash
-                try:
-                    vm_hash = self.get_hash_from_vm(config)
-                    self.vm_configs.add(config)
-                except FileNotFoundError:
-                    pass
-                # If the file exists on the container, save the hash
-                try:
-                    container_hash = self.get_hash_from_container(config)
-                    self.container_configs.add(config)
-                except FileNotFoundError:
-                    pass
-                # If we got both hashes, compare them
-                if vm_hash and container_hash and vm_hash != container_hash:
-                    self.diff_configs.add(config)
+            configs = configs | self.get_config_files_for(pkg)
+        # Hash and save all files in configs
+        split_files = group_strings(list(configs))
+        for file in split_files:
+            self.get_hash_from_vm(file)
+            self.get_hash_from_container(file)
+        # Determine what got hashed
+        for config in configs:
+            vm_hash = None
+            container_hash = None
+            try:
+                vm_hash = self.vm_hashes[config]
+                # The file is on the VM
+                self.vm_configs.add(config)
+            except KeyError:
+                pass
+            try:
+                container_hash = self.container_hashes[config]
+                # The file is on the container
+                self.container_configs.add(config)
+            except KeyError:
+                pass
+            # If we got both hashes, compare them
+            if vm_hash and container_hash and vm_hash != container_hash:
+                self.diff_configs.add(config)
         logging.info(f"Number of configs on vm: {len(self.vm_configs)}")
         logging.info(f"Number of configs on container: {len(self.container_configs)}")
         logging.info(f"Number of identical config files: "

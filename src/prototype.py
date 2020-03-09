@@ -58,7 +58,7 @@ dictConfig({
         },
         'filehandler': {
             'class': 'logging.FileHandler',
-            'filename': 'log/pure_prototype_files.log',
+            'filename': 'pure_prototype_files.log',
             'mode': 'w',
             'level': 'DEBUG',
             'formatter': 'minimal'
@@ -369,13 +369,14 @@ class SystemAnalyzer(ABC):
         container.wait()
         crc = None
         output = container.logs().decode()
-        if 'No such file' in output:
-            logging.error(output) # TODO a debug line
-            raise FileNotFoundError(f"Container does not have the file {filepath}.")
         # Extract hashes and sizes from output.
         lines = output.split('\n')
         for line in lines:
             if line == "":
+                continue
+            if 'No such file' in line:
+                # Couldn't find the file. This is expected to happen sometimes; just keep going.
+                logging.warning(f"From container: {line}")
                 continue
             try:
                 crc, size, file = line.split()
@@ -408,9 +409,10 @@ class SystemAnalyzer(ABC):
             _, stdout, _ = self.ssh_client.exec_command(f'cksum {filepath}')
         crc = None
         for line in stdout:
-            if 'No such file' in line:
-                raise FileNotFoundError(f"VM does not have the file {filepath}.")
             if line == "":
+                continue
+            if 'No such file' in line:
+                # Couldn't find the file. This is expected to happen sometimes; just keep going.
                 continue
             try:
                 crc, size, file = line.split()
@@ -475,19 +477,23 @@ class SystemAnalyzer(ABC):
                           "Stopping.")
             return False
         logging.info("Getting config differences...")
+        
         # Clear configs (else if we run this twice and things have changed, could be confusing)
         self.diff_configs = set()
         self.vm_configs = set()
         self.container_configs = set()
+
         # Populate full set of all config files on the system
         configs = set()
         for pkg in self.all_packages:
-            configs = configs | self.get_config_files_for(pkg)
+            configs |= self.get_config_files_for(pkg)
+
         # Hash and save all files in configs
         split_files = group_strings(list(configs))
-        for file in split_files:
-            self.get_hash_from_vm(file)
-            self.get_hash_from_container(file)
+        for file_group in split_files:
+            self.get_hash_from_vm(file_group)
+            self.get_hash_from_container(file_group)
+
         # Determine what got hashed
         for config in configs:
             vm_hash = None
@@ -507,6 +513,8 @@ class SystemAnalyzer(ABC):
             # If we got both hashes, compare them
             if vm_hash and container_hash and vm_hash != container_hash:
                 self.diff_configs.add(config)
+
+        # Log what we've found
         logging.info(f"Number of configs on vm: {len(self.vm_configs)}")
         logging.info(f"Number of configs on container: {len(self.container_configs)}")
         logging.info(f"Number of identical config files: "
@@ -643,6 +651,9 @@ class CentosAnalyzer(SystemAnalyzer):
         super().get_config_files_for(package)
         _, stdout, _ = self.ssh_client.exec_command(f"rpm -qc {package}")
         configs = {line.strip() for line in stdout}
+        # This is an alias for no files.
+        if '(contains no files)' in configs:
+            configs = set()
         logging.debug(f"{package} has the following config files: {configs}")
         return configs
 
@@ -838,20 +849,23 @@ class UbuntuAnalyzer(SystemAnalyzer):
             logging.info(f"Your Dockerfile is in {folder}")
 
 
-def group_strings(indexable, number=1000):
+def group_strings(indexable, char_count=100000):
     '''
-    Group the indexable into a set of space-separated strings. There will be number items in each
-    string (possibly fewer in the last one filled).
-    1000 as a default was set by experimentation, as 4200 files at once was too much for the VM to
-    handle.
-    It's possible you can find a tighter bound, but 1000 seems safe.
+    Group the indexable into a set of space-separated strings. There will be char_count characters
+    or fewer in each string.
     '''
     return_set = set()
-    # Upper limit for the index
-    top = len(indexable) - (len(indexable) % number or number) + 1
-    for first_index in range(0, top, number):
-        return_set.add(' '.join(indexable[first_index:first_index + number]))
+    curr_string = ""
+    for item in indexable:
+        if len(curr_string) > char_count:
+            return_set.add(curr_string)
+            curr_string = ""
+        curr_string += item + " "
+    if curr_string:
+        return_set.add(curr_string)
+    logging.error(f"COUNT: {len(return_set)}")
     return return_set
+
 
 if __name__ == "__main__":
     logging.info('Beginning analysis...')
@@ -863,5 +877,5 @@ if __name__ == "__main__":
             if kowalski.analyzer.verify_packages(mode=md):
                 break
         kowalski.analyzer.dockerize(tempfile.mkdtemp())
-        # kowalski.analyzer.analyze_files(['/bin/', '/etc/', '/lib/', '/opt/', '/sbin/', '/usr/'])
+        kowalski.analyzer.analyze_files(['/bin/', '/etc/', '/lib/', '/opt/', '/sbin/', '/usr/'])
         kowalski.analyzer.get_config_differences()

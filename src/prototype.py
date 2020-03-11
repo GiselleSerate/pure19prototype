@@ -161,11 +161,11 @@ class SystemAnalyzer(ABC):
         self.image = self.docker_client.images.pull(f"{operating_sys}:{version}")
         logging.info(f"Pulled {self.image} from Docker hub.")
 
-        # All packages on the system
+        # All packages on the system (and versions)
         self.all_packages = {}
-        # Only (and all) the packages we want to install
+        # Only (and all) the packages we want to install (and versions)
         self.install_packages = {}
-        # A list of packages (and their new versions) that we installed on a version
+        # A list of packages (and their /new/ versions) that we installed on a version
         # number different from the original system
         self.unversion_packages = {}
 
@@ -266,10 +266,7 @@ class SystemAnalyzer(ABC):
         Note that we leave them (and their versions) in self.all_packages
         '''
         logging.info("Filtering packages...")
-        num_packages = len(self.all_packages)
-        if num_packages == 0:
-            logging.warning("No packages yet. Have you run get_packages?")
-            return
+        assert self.all_packages, "No packages yet. Have you run get_packages?"
 
         # Get default-installed packages from Docker base image we're going to use
         pkg_bytestring = self.docker_client.containers.run(f"{self.operating_sys}:{self.version}",
@@ -277,6 +274,7 @@ class SystemAnalyzer(ABC):
         # Last element is a blank line; remove it.
         pkg_list = pkg_bytestring.decode().split('\n')[:-1]
         default_packages = type(self).parse_all_pkgs(pkg_list)
+
         # Delete default packages from what we'll install
         for pkg_name, pkg_ver in default_packages.items():
             try:
@@ -290,7 +288,8 @@ class SystemAnalyzer(ABC):
             except KeyError:
                 # Package not slated to be installed anyway
                 pass
-        logging.info(f"Removing defaults cut down {num_packages} packages to "
+
+        logging.info(f"Removing defaults cut down {len(self.all_packages)} packages to "
                      f"{len(self.install_packages)}.")
 
 
@@ -472,12 +471,9 @@ class SystemAnalyzer(ABC):
         container), and on the container (possibly also the VMs).
         Returns True if it succeeded, False otherwise.
         '''
-        if not self.all_packages:
-            logging.error("Attempted to get config differences but haven't run get_packages() yet. "
-                          "Stopping.")
-            return False
+        assert self.all_packages, "No packages yet. Have you run get_packages?"
         logging.info("Getting config differences...")
-        
+
         # Clear configs (else if we run this twice and things have changed, could be confusing)
         self.diff_configs = set()
         self.vm_configs = set()
@@ -537,7 +533,7 @@ class SystemAnalyzer(ABC):
         self.file_logger.info(f"Configs missing on container "
                               f"({len(self.vm_configs - self.container_configs)}):\n"
                               f"{self.vm_configs - self.container_configs}")
-        return True
+
 
     def compare_names(self, places):
         '''
@@ -573,6 +569,7 @@ class SystemAnalyzer(ABC):
         folder -- the folder to put the Dockerfile in
         verbose -- whether to emit log statements
         '''
+        assert self.install_packages, "No packages yet. Have you run get_packages?"
         if verbose:
             logging.info("Creating Dockerfile...")
 
@@ -777,6 +774,7 @@ class UbuntuAnalyzer(SystemAnalyzer):
                 in unversion mode, unspecify version.
         Returns True if all packages got installed correctly; returns False otherwise.
         '''
+        assert self.install_packages, "No packages yet. Have you run get_packages?"
         logging.info(f"Verifying packages in {mode.name} mode...")
         # Write prelude, create image.
         with open(os.path.join(self.tempdir, 'Dockerfile'), 'w') as dockerfile:

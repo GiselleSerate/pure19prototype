@@ -447,8 +447,7 @@ class SystemAnalyzer(ABC):
             self.file_logger.info(f"Just VM ({len(diff_tuple[2])}):\n{diff_tuple[2]}")
             # Now cksum the shared ones
             modified_files = []
-            spaced_strs = group_strings(list(diff_tuple[1]))
-            for place_str in spaced_strs:
+            for place_str in group_strings(list(diff_tuple[1])):
                 self.get_hash_from_container(place_str, is_directory=False)
                 self.get_hash_from_vm(place_str, is_directory=False)
             for file in diff_tuple[1]:
@@ -485,8 +484,7 @@ class SystemAnalyzer(ABC):
             configs |= self.get_config_files_for(pkg)
 
         # Hash and save all files in configs
-        split_files = group_strings(list(configs))
-        for file_group in split_files:
+        for file_group in group_strings(list(configs)):
             self.get_hash_from_vm(file_group)
             self.get_hash_from_container(file_group)
 
@@ -849,20 +847,17 @@ class UbuntuAnalyzer(SystemAnalyzer):
 
 def group_strings(indexable, char_count=100000):
     '''
-    Group the indexable into a set of space-separated strings. There will be char_count characters
-    or fewer in each string.
+    Generator to group the indexable's items into space-separated strings which are about char_count
+    characters long.
     '''
-    return_set = set()
     curr_string = ""
     for item in indexable:
         if len(curr_string) > char_count:
-            return_set.add(curr_string)
+            yield curr_string
             curr_string = ""
         curr_string += item + " "
     if curr_string:
-        return_set.add(curr_string)
-    logging.error(f"COUNT: {len(return_set)}")
-    return return_set
+        yield curr_string
 
 
 if __name__ == "__main__":

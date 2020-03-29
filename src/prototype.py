@@ -226,38 +226,6 @@ class SystemAnalyzer(ABC):
         logging.debug(f"Getting configuration files associated with {package}...")
 
 
-    def get_ports(self):
-        '''
-        Gets the open ports on the target machine. (Currently just a printout of a netstat call.)
-        '''
-        # TODO: How do I know I'm not getting my own port that I'm using for ssh? Is it just
-        # literally port 22?
-        # What if we try to run this on something that uses 22?
-        _, stdout, _ = self.ssh_client.exec_command('netstat -lntp')
-        for line in stdout:
-            # Skip header
-            if (re.match(r'Proto Recv-Q Send-Q Local', line)
-                    or re.match(r'Active Internet', line)):
-                continue
-            proto, recv_q, send_q, local, foreign, state, pid = line.split()
-            pid, progname = pid.split('/')
-            logging.debug(f"proto:{proto} recv_q:{recv_q} send_q:{send_q} local:{local} "
-                          f"foreign:{foreign} state:{state} pid:{pid} progname:{progname}")
-
-
-    def get_procs(self):
-        '''
-        Gets the running processes on the target machine. (Currently just a printout of ps.)
-        '''
-        # Normally we'd have to grep out the command we ran, but we don't have to because ssh.
-        # stdin, stdout, stderr = client.exec_command('ps -ao pid,cmd')
-        _, stdout, _ = self.ssh_client.exec_command('ps -eo pid,cmd')
-        # stdin, stdout, stderr = client.exec_command('ps -aux')
-        for line in stdout:
-            if not re.match(r'[0-9]+', line.split()[0]):
-                continue
-            logging.debug(line.rstrip())
-
 
     def filter_packages(self, strict_versioning=True):
         '''
@@ -305,41 +273,44 @@ class SystemAnalyzer(ABC):
         # Now that we have a Dockerfile, build and check the packages are there
         self.image, _ = self.docker_client.images.build(tag=f'verify{self.operating_sys}',
                                                         path=self.tempdir)
-        container = self.docker_client.containers.run(image=self.image.id,
-                                                      command=type(self).LIST_INSTALLED,
-                                                      detach=True)
-        # Block until the command's done, then check its output.
-        container.wait()
-        output = container.logs()
-        output = output.decode()
-        logging.debug(output)
 
-        there = 0
-        total = 0
-        missing = []
-        for package in self.install_packages:
-            if package in output:
-                there += 1
+        try:
+            container = self.docker_client.containers.run(image=self.image.id,
+                                                          command=type(self).LIST_INSTALLED,
+                                                          detach=True)
+            # Block until the command's done, then check its output.
+            container.wait()
+            output = container.logs()
+            output = output.decode()
+            logging.debug(output)
+
+            there = 0
+            total = 0
+            missing = []
+            for package in self.install_packages:
+                if package in output:
+                    there += 1
+                else:
+                    missing.append(package)
+                total += 1
+
+            if there < total:
+                logging.error(f"{there}/{total} packages installed.")
+                logging.error(f"The following packages could not be installed: {missing}")
+                if mode == self.Mode.unversion:
+                    logging.info(f"Now removing version numbers from bad packages...")
+                    for pkg_name in missing:
+                        self.install_packages[pkg_name] = False # TODO: I know we're going to change this later
+                elif mode == self.Mode.delete:
+                    logging.info(f"Now removing bad packages...")
+                    for pkg_name in missing:
+                        del self.install_packages[pkg_name]
             else:
-                missing.append(package)
-            total += 1
+                logging.info(f"All {total} packages installed properly.")
 
-        if there < total:
-            logging.error(f"{there}/{total} packages installed.")
-            logging.error(f"The following packages could not be installed: {missing}")
-            if mode == self.Mode.unversion:
-                logging.info(f"Now removing version numbers from bad packages...")
-                for pkg_name in missing:
-                    self.install_packages[pkg_name] = False # TODO: I know we're going to change this later
-            elif mode == self.Mode.delete:
-                logging.info(f"Now removing bad packages...")
-                for pkg_name in missing:
-                    del self.install_packages[pkg_name]
-        else:
-            logging.info(f"All {total} packages installed properly.")
-
-        container.remove()
-        return there == total
+            return there == total
+        finally:
+            container.remove()
 
 
     def get_hash_from_container(self, filepath, is_directory=False):
@@ -356,38 +327,42 @@ class SystemAnalyzer(ABC):
             logging.warning("Please pass a filepath.")
             return None
         logging.debug(f"Hashing filepath {filepath} from the container...")
-        if is_directory:
-            container = self.docker_client.containers.run(image=self.image.id,
-                                                          command=f"find {filepath} -type f "
-                                                                  f"-exec cksum '{{}}' \\;",
-                                                          detach=True)
-        else:
-            container = self.docker_client.containers.run(image=self.image.id,
-                                                          command=f"cksum {filepath}",
-                                                          detach=True)
-        container.wait()
-        crc = None
-        output = container.logs().decode()
-        # Extract hashes and sizes from output.
-        lines = output.split('\n')
-        for line in lines:
-            if line == "":
-                continue
-            if 'No such file' in line:
-                # Couldn't find the file. This is expected to happen sometimes; just keep going.
-                logging.warning(f"From container: {line}")
-                continue
-            try:
-                crc, size, file = line.split()
-                self.container_hashes[file] = {'hash': crc, 'size': size}
-            except ValueError:
-                logging.error(f"Unexpected number of values returned from line: {line.split()}")
-                raise
-        if is_directory:
-            # In this case, the returned hash would just be the last thing hashed; not meaningful,
-            # so don't return it.
-            return None
-        return crc
+
+        try:
+            if is_directory:
+                container = self.docker_client.containers.run(image=self.image.id,
+                                                              command=f"find {filepath} -type f "
+                                                                      f"-exec cksum '{{}}' \\;",
+                                                              detach=True)
+            else:
+                container = self.docker_client.containers.run(image=self.image.id,
+                                                              command=f"cksum {filepath}",
+                                                              detach=True)
+            container.wait()
+            crc = None
+            output = container.logs().decode()
+            # Extract hashes and sizes from output.
+            lines = output.split('\n')
+            for line in lines:
+                if line == "":
+                    continue
+                if 'No such file' in line:
+                    # Couldn't find the file. This is expected to happen sometimes; just keep going.
+                    logging.warning(f"From container: {line}")
+                    continue
+                try:
+                    crc, size, file = line.split()
+                    self.container_hashes[file] = {'hash': crc, 'size': size}
+                except ValueError:
+                    logging.error(f"Unexpected number of values returned from line: {line.split()}")
+                    raise
+            if is_directory:
+                # In this case, the returned hash would just be the last thing hashed; not meaningful,
+                # so don't return it.
+                return None
+            return crc
+        finally:
+            container.remove()
 
 
     def get_hash_from_vm(self, filepath, is_directory=False):
@@ -545,11 +520,14 @@ class SystemAnalyzer(ABC):
             _, stdout, _ = self.ssh_client.exec_command(f"find {folder} -type f")
             for line in stdout:
                 vm_filenames.add(line.strip())
-            container = self.docker_client.containers.run(image=self.image.id,
-                                                          command=f"find {folder} -type f",
-                                                          detach=True)
-            container.wait()
-            output = container.logs().decode()
+            try:
+                container = self.docker_client.containers.run(image=self.image.id,
+                                                              command=f"find {folder} -type f",
+                                                              detach=True)
+                container.wait()
+                output = container.logs().decode()
+            finally:
+                container.remove()
             for line in output.split():
                 docker_filenames.add(line)
         logging.debug(f"The total number of files in the VM is {len(vm_filenames)}")
@@ -787,41 +765,41 @@ class UbuntuAnalyzer(SystemAnalyzer):
         install_all = "apt-get -y install "
         install_all += self.assemble_packages()
 
-        # Spin up the container and let it do its thing.
-        container = self.docker_client.containers.run(self.image.id, command=install_all,
-                                                      detach=True)
-        container.wait()
+        try:
+            # Spin up the container and let it do its thing.
+            container = self.docker_client.containers.run(self.image.id, command=install_all,
+                                                          detach=True)
+            container.wait()
 
-        # Parse the container's output.
-        missing_pkgs = re.findall("E: Unable to locate package (.*)\n", container.logs().decode())
-        missing_vers = re.findall("' for '(.*)' was not found\n", container.logs().decode())
+            # Parse the container's output.
+            missing_pkgs = re.findall("E: Unable to locate package (.*)\n", container.logs().decode())
+            missing_vers = re.findall("' for '(.*)' was not found\n", container.logs().decode())
 
-        if not re.search("E: ", container.logs().decode()):
-            logging.info("All packages installed properly.")
-            container.remove()
-            return True
+            if not re.search("E: ", container.logs().decode()):
+                logging.info("All packages installed properly.")
+                container.remove()
+                return True
 
-        if not missing_pkgs and not missing_vers:
-            logging.error("No missing packages or versions found, but there was an error:\n"
-                          f"{container.logs().decode()}")
-            # Intentionally not removing the container for debugging purposes.
+            if not missing_pkgs and not missing_vers:
+                logging.error("No missing packages or versions found, but there was an error:\n"
+                              f"{container.logs().decode()}")
+                # Intentionally not removing the container for debugging purposes.
+                return False
+
+            # Report on missing packages.
+            logging.warning(f"Could not find the following packages: {missing_pkgs}")
+            logging.warning(f"Could not find versions for the following packages: {missing_vers}")
+            if mode == self.Mode.unversion:
+                logging.info(f"Now removing version numbers from bad packages...")
+                for pkg_name in missing_vers:
+                    self.install_packages[pkg_name] = False
+            elif mode == self.Mode.delete:
+                logging.info(f"Now removing bad packages...")
+                for pkg_name in itertools.chain(missing_pkgs, missing_vers):
+                    del self.install_packages[pkg_name]
             return False
-
-        # Report on missing packages.
-        logging.warning(f"Could not find the following packages: {missing_pkgs}")
-        logging.warning(f"Could not find versions for the following packages: {missing_vers}")
-        if mode == self.Mode.unversion:
-            logging.info(f"Now removing version numbers from bad packages...")
-            for pkg_name in missing_vers:
-                self.install_packages[pkg_name] = False
-        elif mode == self.Mode.delete:
-            logging.info(f"Now removing bad packages...")
-            for pkg_name in itertools.chain(missing_pkgs, missing_vers):
-                del self.install_packages[pkg_name]
-
-        container.remove()
-        return False
-
+        finally:
+            container.remove()
 
 
     def dockerize(self, folder, verbose=True):

@@ -6,7 +6,7 @@ version: 2
 jobs:
   build:
     machine: 
-      image: circleci/classic:latest
+      image: circleci/classic:201808-01
     # docker: 
       # specify the version you desire here
       # use `-browsers` prefix for selenium tests, e.g. `3.6.1-browsers`
@@ -41,7 +41,7 @@ jobs:
       - run:
           name: install dependencies
           command: |
-            python3 -m venv venv
+            python -m venv venv
             . venv/bin/activate
             pip install -r requirements.txt
 

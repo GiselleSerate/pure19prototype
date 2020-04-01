@@ -20,6 +20,7 @@ import tempfile
 import docker
 from paramiko import AutoAddPolicy, SSHClient
 
+from src.error import OpSysError, PermissionsError
 from src.structs import Host
 
 
@@ -99,7 +100,8 @@ class GeneralAnalyzer:
         # Explore ~/.ssh/ for keys
         self.ssh_client.load_system_host_keys()
         # Establish SSH connection
-        self.ssh_client.connect(self.host.hostname, port=self.host.port, username=self.host.username)
+        self.ssh_client.connect(self.host.hostname, port=self.host.port,
+                                username=self.host.username)
 
         self.get_os()
         self.get_analyzer()
@@ -142,8 +144,7 @@ class GeneralAnalyzer:
             self.analyzer = UbuntuAnalyzer(self.ssh_client, self.docker_client, self.operating_sys,
                                            self.version)
         else:
-            assert False, f"Unknown operating system {self.operating_sys}. This likely means we "\
-                          f"haven't written a SystemAnalyzer child class for this system yet."
+            raise OpSysError(op_sys=self.operating_sys)
 
 
 class SystemAnalyzer(ABC):

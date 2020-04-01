@@ -20,27 +20,25 @@ import tempfile
 import docker
 from paramiko import AutoAddPolicy, SSHClient
 
+from src.structs import Host
+
 
 
 # Constants (which we can move into a config file later)
-HOSTNAME = '127.0.0.1'
 LOG_LEVEL = 'INFO'
 
 # Centos
-PORT = 2222
-USERNAME = 'root'
+HOST = Host(hostname='127.0.0.1', port=2222, username='root')
 
 # Ubuntu
-# PORT = 3333
-# USERNAME = 'root'
+# HOST = Host(hostname='127.0.0.1', port=3333, username='root')
 
-# # Ubuntu container
-# PORT = 1022
-# USERNAME = 'sshuser'
+# Ubuntu container
+# HOST = Host(hostname='127.0.0.1', port=1022, username='sshuser')
 
 # Centos container
-PORT = 1222
-USERNAME = 'sshuser'
+# HOST = Host(hostname='127.0.0.1', port=1222, username='sshuser')
+
 
 
 # Configure logging
@@ -83,13 +81,11 @@ dictConfig({
 
 class GeneralAnalyzer:
     '''Does all analysis of a system that you know nothing about.'''
-    def __init__(self, hostname=HOSTNAME, port=PORT, username=USERNAME, auto_add=False):
+    def __init__(self, host=HOST, auto_add=False):
         self.ssh_client = SSHClient()
         if auto_add:
             self.ssh_client.set_missing_host_key_policy(AutoAddPolicy())
-        self.hostname = hostname
-        self.port = port
-        self.username = username
+        self.host = host
 
         self.docker_client = docker.from_env()
 
@@ -103,7 +99,7 @@ class GeneralAnalyzer:
         # Explore ~/.ssh/ for keys
         self.ssh_client.load_system_host_keys()
         # Establish SSH connection
-        self.ssh_client.connect(self.hostname, port=self.port, username=self.username)
+        self.ssh_client.connect(self.host.hostname, port=self.host.port, username=self.host.username)
 
         self.get_os()
         self.get_analyzer()
@@ -146,8 +142,8 @@ class GeneralAnalyzer:
             self.analyzer = UbuntuAnalyzer(self.ssh_client, self.docker_client, self.operating_sys,
                                            self.version)
         else:
-            logging.error(f"Unknown operating system {self.operating_sys}. This likely means we "
-                          f"haven't written a SystemAnalyzer child class for this system yet.")
+            assert False, f"Unknown operating system {self.operating_sys}. This likely means we "\
+                          f"haven't written a SystemAnalyzer child class for this system yet."
 
 
 class SystemAnalyzer(ABC):
@@ -847,7 +843,7 @@ def group_strings(indexable, char_count=100000):
 
 if __name__ == "__main__":
     logging.info('Beginning analysis...')
-    with GeneralAnalyzer(hostname=HOSTNAME, port=PORT, username=USERNAME) as kowalski:
+    with GeneralAnalyzer(host=HOST) as kowalski:
         kowalski.analyzer.get_packages()
         kowalski.analyzer.filter_packages()
         for md in (SystemAnalyzer.Mode.dry, SystemAnalyzer.Mode.unversion,

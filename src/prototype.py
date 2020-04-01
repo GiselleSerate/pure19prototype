@@ -363,8 +363,8 @@ class SystemAnalyzer(ABC):
                     logging.error(f"Unexpected number of values returned from line: {line.split()}")
                     raise
             if is_directory:
-                # In this case, the returned hash would just be the last thing hashed; not meaningful,
-                # so don't return it.
+                # In this case, the returned hash would just be the last thing hashed; not
+                # meaningful, so don't return it.
                 return None
             return crc
         finally:
@@ -778,7 +778,8 @@ class UbuntuAnalyzer(SystemAnalyzer):
             container.wait()
 
             # Parse the container's output.
-            missing_pkgs = re.findall("E: Unable to locate package (.*)\n", container.logs().decode())
+            missing_pkgs = re.findall("E: Unable to locate package (.*)\n",
+                                      container.logs().decode())
             missing_vers = re.findall("' for '(.*)' was not found\n", container.logs().decode())
 
             if not re.search("E: ", container.logs().decode()):

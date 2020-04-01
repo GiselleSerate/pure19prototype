@@ -1,8 +1,6 @@
 .env
 __pycache__
 .pytest_cache
-*.pub
-log/*
 *.log
 .DS_Store
 ._.DS_Store

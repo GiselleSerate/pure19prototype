@@ -1,3 +1,9 @@
+'''
+Provides custom errors for more useful fail states for our program.
+'''
+
+
+
 class Error(Exception):
     '''Base class for exceptions in this module.'''
 
@@ -9,6 +15,7 @@ class OrigSysError(Error):
 class OpSysError(OrigSysError):
     '''Unsupported operating system.'''
     def __init__(self, op_sys):
+        super().__init__()
         self.op_sys = op_sys
         self.message = f"Unknown operating system {op_sys}. This likely means we haven't written "\
                        f"a SystemAnalyzer child class for this system yet."
@@ -16,5 +23,6 @@ class OpSysError(OrigSysError):
 class PermissionsError(OrigSysError):
     '''Insufficient permissions on target system.'''
     def __init__(self, user):
+        super().__init__()
         self.user = user
         self.message = f"Insufficient permissions on the target system for {user}."

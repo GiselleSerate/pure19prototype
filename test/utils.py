@@ -15,10 +15,10 @@ from src.prototype import GeneralAnalyzer, SystemAnalyzer
 
 
 
-def container_tester(name, operating_sys, host, expected, install_str):
+def container_tester(name, op_sys, host, expected, install_str):
     '''
     Test that specified container can be put through the prototype
-    operating_sys -- name of folder in containers where the original Dockerfile is
+    op_sys -- name of folder in containers where the original Dockerfile is
     host -- a Host structure for the system under analysis
     expected -- packages expected to be in the resulting Docker container
     install_str -- the string (no trailing space!) to list packages to install
@@ -28,9 +28,7 @@ def container_tester(name, operating_sys, host, expected, install_str):
     logging.info(f"Setting up base {name} container . . .")
     docker_client = docker.from_env()
     base_image, _ = docker_client.images.build(tag=f'test_{name}_base_img',
-                                               path=os.path.join(os.getcwd(),
-                                                                 "containers",
-                                                                 operating_sys))
+                                               path=os.path.join(os.getcwd(), "containers", op_sys))
 
     try:
         base_container = docker_client.containers.run(base_image.id, detach=True,
@@ -69,6 +67,10 @@ def container_tester(name, operating_sys, host, expected, install_str):
 
     finally:
         # Clean up after yourself
-        base_container.remove(force=True)
-        verify_container.remove(force=True)
-        logging.info(f"Cleaned up {operating_sys} successfully.")
+        try:
+            base_container.remove(force=True)
+            verify_container.remove(force=True)
+        except UnboundLocalError:
+            # This just means one or more of these containers didn't get created; it's fine.
+            pass
+        logging.info(f"Cleaned up {op_sys} successfully.")

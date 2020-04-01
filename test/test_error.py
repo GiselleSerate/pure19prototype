@@ -2,8 +2,9 @@
 Provide tests which force the system into bad states and expect proper errors.
 '''
 
-from src.structs import Host
 from test.utils import container_tester
+from src.structs import Host
+from src.error import OpSysError
 
 
 
@@ -16,6 +17,11 @@ def test_unknown_os():
     '''
     Test that Kali container errors out gracefully and immediately
     '''
-    expected = ['openssh-server', 'openssh-clients']
-    container_tester(name='basic_centos', operating_sys='centos', host=HOST, expected=expected,
-                     install_str='yum install -y')
+    err = None
+    expected = []
+    try:
+        container_tester(name='unknown_os', op_sys='kali', host=HOST, expected=expected,
+                         install_str='apt-get install -y')
+    except OpSysError as o_err:
+        err = o_err
+    assert err.op_sys == 'kali'

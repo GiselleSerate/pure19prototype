@@ -2,8 +2,9 @@
 Provides local tests for Centos and Ubuntu. Don't run these in CI.
 '''
 
-from analyzer.prototype import GeneralAnalyzer, SystemAnalyzer
+from analyzer.general import GeneralAnalyzer
 from analyzer.utils import Host
+from analyzer.system.system import SystemAnalyzer
 
 
 

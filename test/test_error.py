@@ -14,7 +14,7 @@ from .context import analyzer
 HOST = analyzer.Host(hostname='127.0.0.1', port=1234, username='sshuser')
 
 
-# # This only passes inconsistently because of SSH problems. I don't know why.
+# # TODO: This only passes inconsistently because of SSH problems. I don't know why.
 # def test_unknown_os():
 #     '''
 #     Test that Kali container errors out gracefully and immediately

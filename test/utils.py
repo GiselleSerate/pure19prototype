@@ -11,7 +11,8 @@ import tempfile
 
 import docker
 
-from analyzer.prototype import GeneralAnalyzer, SystemAnalyzer
+from analyzer.general import GeneralAnalyzer
+from analyzer.system.system import SystemAnalyzer
 
 
 
@@ -73,5 +74,4 @@ def container_tester(name, op_sys, host, expected, install_str):
         except UnboundLocalError:
             # This just means one or more of these containers didn't get created; it's fine.
             logging.warning("Cleanup didn't need to remove both containers.")
-            pass
         logging.info(f"Cleaned up {op_sys} successfully.")

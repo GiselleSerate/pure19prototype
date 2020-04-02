@@ -56,5 +56,6 @@ dictConfig({
     }
 })
 
+from .system import *
 
-from .prototype import *
+from .general import *

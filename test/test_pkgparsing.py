@@ -2,7 +2,7 @@
 Provides tests for parsing functionality for various package managers.
 '''
 
-from src.prototype import CentosAnalyzer, UbuntuAnalyzer
+from analyzer.prototype import CentosAnalyzer, UbuntuAnalyzer
 
 
 

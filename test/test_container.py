@@ -6,7 +6,7 @@ test_*_container are the actual tests, which specify behaviors for the container
 '''
 
 from test.utils import container_tester
-from src.structs import Host
+from analyzer.utils import Host
 
 
 

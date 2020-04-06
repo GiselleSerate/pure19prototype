@@ -13,7 +13,7 @@ from paramiko import AutoAddPolicy, SSHClient
 from paramiko.ssh_exception import NoValidConnectionsError
 
 from . import HOST
-from .utils import OpSysError, OrigSysConnError # TODO: PermissionsError
+from .utils import OpSysError, OrigSysConnError, PermissionsError
 from .system.centos import CentosAnalyzer
 from .system.ubuntu import UbuntuAnalyzer
 
@@ -45,7 +45,17 @@ class GeneralAnalyzer:
         except NoValidConnectionsError:
             raise OrigSysConnError("Can't connect to the system you want to replicate. Is it up?")
 
-        # TODO: Verify permissions on original system
+        # Verify permissions on original system.
+        # NOTE: In future you might be able to extend this to accept sudo-happy users, not just
+        # literally root.
+        _, stdout, _ = self.ssh_client.exec_command(f'sudo -v')
+        for line in stdout:
+            logging.error(line.strip())
+            if line == "":
+                continue
+            if line.strip() != '0':
+                raise PermissionsError("UID of provided user is not root. Please provide root "
+                                       "access.")
 
         self.get_os()
         self.get_analyzer()

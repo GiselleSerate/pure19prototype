@@ -1,3 +1,11 @@
+import sys
+
+
+# Assert that we're running Python version >= 3.6.
+if (sys.version_info[0] < 3 or (sys.version_info[0] == 3 and sys.version_info[1] < 6)):
+    raise Exception("Python 3.6 or a more recent version is required.")
+
+
 from logging.config import dictConfig
 
 from .utils import *
@@ -55,6 +63,7 @@ dictConfig({
         'handlers': ['wsgi']
     }
 })
+
 
 from .system import *
 

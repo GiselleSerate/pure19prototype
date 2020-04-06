@@ -45,6 +45,8 @@ class GeneralAnalyzer:
         except NoValidConnectionsError:
             raise OrigSysConnError("Can't connect to the system you want to replicate. Is it up?")
 
+        # TODO: Verify permissions on original system
+
         self.get_os()
         self.get_analyzer()
 

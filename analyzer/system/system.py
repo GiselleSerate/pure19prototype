@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 import requests.exceptions
 
-from ..utils import DockerDaemonError, group_strings
+from ..utils import analyze_dependencies, DockerDaemonError, group_strings
 
 
 
@@ -99,15 +99,29 @@ class SystemAnalyzer(ABC):
         logging.debug(f"Getting configuration files associated with {package}...")
 
 
-
-    def filter_packages(self, strict_versioning=True):
+    def filter_packages(self, strict_versioning=True, simplify_deps=False):
         '''
         Removes packages from the list to be installed which are already in the base image.
+        strict_versioning and simplify_deps may not both be True at the same time.
         strict_versioning -- if True, we'll only remove the package if the versions match
         Note that we leave them (and their versions) in self.all_packages
+        simplify_deps -- if True, we'll try to remove packages that will be installed already due to
+        dependencies from other packages
         '''
         logging.info("Filtering packages...")
         assert self.all_packages, "No packages yet. Have you run get_packages?"
+
+        if strict_versioning and simplify_deps:
+            raise ValueError("Using strict versioning and dependency simplification simultaneously "
+                             "is not supported.")
+
+        # Optionally simplify the package list by analyzing dependencies.
+        if simplify_deps:
+            pkgs_to_remove = analyze_dependencies(self.all_packages, self.get_dependencies)
+            for pkg_name in pkgs_to_remove:
+                del self.install_packages[pkg_name]
+            logging.info(f"Removing extra packages based on dependency analysis cut down "
+                         f"{len(self.all_packages)} packages to {len(self.install_packages)}.")
 
         # Get default-installed packages from Docker base image we're going to use
         pkg_bytestring = self.docker_client.containers.run(f"{self.op_sys}:{self.version}",

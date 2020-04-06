@@ -16,13 +16,14 @@ from .utils import *
 
 # Read in constants
 CFG = configparser.ConfigParser()
+CFG.read(os.path.join('defaults.ini'))
 CFG.read(os.path.join('config.ini'))
 
-LOG_LEVEL = CFG['GENERAL']['LOG_LEVEL']
-MACHINE_NAME = CFG['GENERAL']['MACHINE_NAME']
-HOSTNAME = CFG[MACHINE_NAME]['HOSTNAME']
+LOG_LEVEL = CFG.get('GENERAL', 'LOG_LEVEL')
+MACHINE_NAME = CFG.get('GENERAL', 'MACHINE_NAME')
+HOSTNAME = CFG.get(MACHINE_NAME, 'HOSTNAME')
 PORT = CFG.getint(MACHINE_NAME, 'PORT')
-USERNAME = CFG[MACHINE_NAME]['USERNAME']
+USERNAME = CFG.get(MACHINE_NAME, 'USERNAME')
 
 HOST = Host(hostname=HOSTNAME, port=PORT, username=USERNAME)
 

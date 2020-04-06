@@ -16,9 +16,9 @@ from analyzer.utils import Host
 CFG = configparser.ConfigParser()
 CFG.read(os.path.join('test', 'config.ini'))
 
-HOSTNAME = CFG['CONTAINER']['HOSTNAME']
+HOSTNAME = CFG.get('CONTAINER', 'HOSTNAME')
 PORT = CFG.getint('CONTAINER', 'PORT')
-USERNAME = CFG['CONTAINER']['USERNAME']
+USERNAME = CFG.get('CONTAINER', 'USERNAME')
 
 HOST = Host(hostname=HOSTNAME, port=PORT, username=USERNAME)
 

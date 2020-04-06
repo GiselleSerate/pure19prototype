@@ -14,12 +14,12 @@ from analyzer.system.system import SystemAnalyzer
 CFG = configparser.ConfigParser()
 CFG.read(os.path.join('test', 'config.ini'))
 
-C_HOSTNAME = CFG['CENTOS_VM']['HOSTNAME']
+C_HOSTNAME = CFG.get('CENTOS_VM', 'HOSTNAME')
 C_PORT = CFG.getint('CENTOS_VM', 'PORT')
-C_USERNAME = CFG['CENTOS_VM']['USERNAME']
-U_HOSTNAME = CFG['UBUNTU_VM']['HOSTNAME']
+C_USERNAME = CFG.get('CENTOS_VM', 'USERNAME')
+U_HOSTNAME = CFG.get('UBUNTU_VM', 'HOSTNAME')
 U_PORT = CFG.getint('UBUNTU_VM', 'PORT')
-U_USERNAME = CFG['UBUNTU_VM']['USERNAME']
+U_USERNAME = CFG.get('UBUNTU_VM', 'USERNAME')
 
 
 def test_local_basic_build_centos():

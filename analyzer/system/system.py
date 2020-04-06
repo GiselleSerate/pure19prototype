@@ -99,24 +99,19 @@ class SystemAnalyzer(ABC):
         logging.debug(f"Getting configuration files associated with {package}...")
 
 
-    def filter_packages(self, strict_versioning=True, simplify_deps=False):
+    def filter_packages(self, strict_versioning=True):
         '''
-        Removes packages from the list to be installed which are already in the base image.
-        strict_versioning and simplify_deps may not both be True at the same time.
-        strict_versioning -- if True, we'll only remove the package if the versions match
-        Note that we leave them (and their versions) in self.all_packages
-        simplify_deps -- if True, we'll try to remove packages that will be installed already due to
-        dependencies from other packages
+        Removes packages from the list to be installed if they would be installed as a dependency of
+        another or if they are already in the base image. Note that we leave them (and their
+        versions) in self.all_packages.
+        strict_versioning -- if True, we'll only remove the package if the versions match the base
+            image, and we will NOT do dependency analysis.
         '''
         logging.info("Filtering packages...")
         assert self.all_packages, "No packages yet. Have you run get_packages?"
 
-        if strict_versioning and simplify_deps:
-            raise ValueError("Using strict versioning and dependency simplification simultaneously "
-                             "is not supported.")
-
         # Optionally simplify the package list by analyzing dependencies.
-        if simplify_deps:
+        if not strict_versioning:
             pkgs_to_remove = analyze_dependencies(self.all_packages, self.get_dependencies)
             for pkg_name in pkgs_to_remove:
                 del self.install_packages[pkg_name]

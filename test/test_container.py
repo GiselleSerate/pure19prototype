@@ -5,13 +5,22 @@ container_tester is a helper function with the actual function of the tests.
 test_*_container are the actual tests, which specify behaviors for the container_tester function.
 '''
 
+import configparser
+import os
+
 from test.utils import container_tester
 from analyzer.utils import Host
 
 
+# Read in constants
+CFG = configparser.ConfigParser()
+CFG.read(os.path.join('test', 'config.ini'))
 
-# Constants (which we can move into a config file later)
-HOST = Host(hostname='127.0.0.1', port=1234, username='sshuser')
+HOSTNAME = CFG['CONTAINER']['HOSTNAME']
+PORT = CFG.getint('CONTAINER', 'PORT')
+USERNAME = CFG['CONTAINER']['USERNAME']
+
+HOST = Host(hostname=HOSTNAME, port=PORT, username=USERNAME)
 
 
 

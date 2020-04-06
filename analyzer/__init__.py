@@ -1,4 +1,9 @@
 import sys
+import configparser
+import os
+
+from logging.config import dictConfig
+
 
 
 # Assert that we're running Python version >= 3.6.
@@ -6,26 +11,20 @@ if (sys.version_info[0] < 3 or (sys.version_info[0] == 3 and sys.version_info[1]
     raise Exception("Python 3.6 or a more recent version is required.")
 
 
-from logging.config import dictConfig
-
 from .utils import *
 
 
-# Constants (which we can move into a config file later)
-LOG_LEVEL = 'INFO'
+# Read in constants
+CFG = configparser.ConfigParser()
+CFG.read(os.path.join('config.ini'))
 
-# Centos
-HOST = Host(hostname='127.0.0.1', port=2222, username='root')
+LOG_LEVEL = CFG['GENERAL']['LOG_LEVEL']
+MACHINE_NAME = CFG['GENERAL']['MACHINE_NAME']
+HOSTNAME = CFG[MACHINE_NAME]['HOSTNAME']
+PORT = CFG.getint(MACHINE_NAME, 'PORT')
+USERNAME = CFG[MACHINE_NAME]['USERNAME']
 
-# Ubuntu
-# HOST = structs.Host(hostname='127.0.0.1', port=3333, username='root')
-
-# Ubuntu container
-# HOST = structs.Host(hostname='127.0.0.1', port=1022, username='sshuser')
-
-# Centos container
-# HOST = structs.Host(hostname='127.0.0.1', port=1222, username='sshuser')
-
+HOST = Host(hostname=HOSTNAME, port=PORT, username=USERNAME)
 
 # Configure logging
 dictConfig({

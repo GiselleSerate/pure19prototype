@@ -83,7 +83,7 @@ def analyze_dependencies(nodes, get_deps_func):
         # Only counts if it was the original list
         nodes = [node for node in sub_g.nodes() if node in node_set]
         if len(nodes) > 0:
-            logging.info(f"Strongly connected component: {repr(nodes)}")
+            logging.debug(f"Strongly connected component: {repr(nodes)}")
             for node in nodes:
                 filtered_pkgs.add(node)
 

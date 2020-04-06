@@ -1,16 +1,25 @@
 '''
 Provides local tests for Centos and Ubuntu. Don't run these in CI.
+TODO: Please update the tests in this file.
 '''
+import configparser
+import os
 
 from analyzer.general import GeneralAnalyzer
 from analyzer.utils import Host
 from analyzer.system.system import SystemAnalyzer
 
 
+# Read in constants
+CFG = configparser.ConfigParser()
+CFG.read(os.path.join('test', 'config.ini'))
 
-# Constants (which we can move into a config file later)
-HOSTNAME = '127.0.0.1'
-
+C_HOSTNAME = CFG['CENTOS_VM']['HOSTNAME']
+C_PORT = CFG.getint('CENTOS_VM', 'PORT')
+C_USERNAME = CFG['CENTOS_VM']['USERNAME']
+U_HOSTNAME = CFG['UBUNTU_VM']['HOSTNAME']
+U_PORT = CFG.getint('UBUNTU_VM', 'PORT')
+U_USERNAME = CFG['UBUNTU_VM']['USERNAME']
 
 
 def test_local_basic_build_centos():
@@ -18,7 +27,7 @@ def test_local_basic_build_centos():
     Test that all packages from our CentOS system can be installed
     (first try with the specified version for all; failing that, try latest).
     '''
-    host = Host(hostname=HOSTNAME, port=2222, username='root')
+    host = Host(hostname=C_HOSTNAME, port=C_PORT, username=C_USERNAME)
     with GeneralAnalyzer(host=host) as kowalski:
         kowalski.analyzer.get_packages()
         kowalski.analyzer.filter_packages()
@@ -36,7 +45,7 @@ def test_local_basic_build_ubuntu():
     Test that all packages from our ubuntu system can be installed
     (first try with the specified version for all; failing that, try latest).
     '''
-    host = Host(hostname=HOSTNAME, port=3333, username='squirrel')
+    host = Host(hostname=U_HOSTNAME, port=U_PORT, username=U_USERNAME)
     with GeneralAnalyzer(host=host) as kowalski:
         kowalski.analyzer.get_packages()
         kowalski.analyzer.filter_packages()

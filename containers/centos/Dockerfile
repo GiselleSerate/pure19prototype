@@ -2,12 +2,13 @@
 
 FROM centos/systemd
 
+RUN echo "pass" | passwd root --stdin
 RUN yum -y install openssh-server openssh-clients
-RUN groupadd sshgroup && useradd -ms /bin/bash -g sshgroup sshuser
-ARG home=/home/sshuser
-RUN mkdir $home/.ssh
+ARG home=/root
 COPY test_rsa.pub $home/.ssh/authorized_keys
-RUN chown sshuser:sshgroup $home/.ssh/authorized_keys && \
+RUN chown root:root $home/.ssh/authorized_keys && \
     chmod 600 $home/.ssh/authorized_keys
+
+RUN sed -i 's/#PermitRootLogin/PermitRootLogin/g' /etc/ssh/sshd_config
 RUN /usr/bin/ssh-keygen -A
 ENTRYPOINT /usr/sbin/sshd -D

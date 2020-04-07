@@ -1,153 +1,17 @@
 '''
-Provides classes to analyze an SSHable system from the ground up and convert it to a container.
-
-GeneralAnalyzer begins from no knowledge and sets up an environment to look at a system.
 SystemAnalyzer is an abstract base class which may be extended to create more specific analyzers
     for certain OSs or package managers.
-UbuntuAnalyzer inherits from SystemAnalyzer and contains methods to analyze Ubuntu/apt systems.
-CentosAnalyzer inherits from SystemAnalyzer and contains methods to analyze CentOS/yum systems.
 '''
+
+import logging
+import tempfile
 
 from abc import ABC, abstractmethod
 from enum import Enum
-import itertools
-import logging
-from logging.config import dictConfig
-import os
-import re
-import tempfile
+import requests.exceptions
 
-import docker
-from paramiko import AutoAddPolicy, SSHClient
+from ..utils import analyze_dependencies, DockerDaemonError, group_strings
 
-
-
-# Constants (which we can move into a config file later)
-HOSTNAME = '127.0.0.1'
-LOG_LEVEL = 'INFO'
-
-# Centos
-PORT = 2222
-USERNAME = 'root'
-
-# Ubuntu
-# PORT = 3333
-# USERNAME = 'root'
-
-# # Ubuntu container
-# PORT = 1022
-# USERNAME = 'sshuser'
-
-# Centos container
-PORT = 1222
-USERNAME = 'sshuser'
-
-
-# Configure logging
-dictConfig({
-    'version': 1,
-    'formatters': {
-        'default': {
-            'format': '%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
-        },
-        'minimal': {
-            'format': '[%(filename)s:%(lineno)d] %(message)s',
-        }
-    },
-    'handlers': {
-        'wsgi': {
-            'class': 'logging.StreamHandler',
-            'stream': 'ext://sys.stdout',
-            'formatter': 'default'
-        },
-        'filehandler': {
-            'class': 'logging.FileHandler',
-            'filename': 'pure_prototype_files.log',
-            'mode': 'w',
-            'level': 'DEBUG',
-            'formatter': 'minimal'
-        }
-    },
-    'loggers': {
-        'filenames': {
-            'propagate': False,
-            'handlers': ['filehandler']
-        }
-    },
-    'root': {
-        'level': LOG_LEVEL,
-        'handlers': ['wsgi']
-    }
-})
-
-
-class GeneralAnalyzer:
-    '''Does all analysis of a system that you know nothing about.'''
-    def __init__(self, hostname=HOSTNAME, port=PORT, username=USERNAME, auto_add=False):
-        self.ssh_client = SSHClient()
-        if auto_add:
-            self.ssh_client.set_missing_host_key_policy(AutoAddPolicy())
-        self.hostname = hostname
-        self.port = port
-        self.username = username
-
-        self.docker_client = docker.from_env()
-
-        self.operating_sys = None
-        self.version = None
-
-        self.analyzer = None
-
-
-    def __enter__(self):
-        # Explore ~/.ssh/ for keys
-        self.ssh_client.load_system_host_keys()
-        # Establish SSH connection
-        self.ssh_client.connect(self.hostname, port=self.port, username=self.username)
-
-        self.get_os()
-        self.get_analyzer()
-
-        return self
-
-
-    def __exit__(self, *args):
-        # Make sure you kill the connection when you're done
-        self.ssh_client.close()
-
-
-    def get_os(self):
-        '''
-        Gets the operating system and version of the target system.
-        '''
-        logging.info("Getting operating system and version...")
-        _, stdout, _ = self.ssh_client.exec_command('cat /etc/os-release')
-        # Extract operating system and version
-        for line in stdout:
-            if re.match(r'VERSION_ID=', line):
-                line = line.strip().replace('"', '')
-                version = line.split('=')[1]
-            elif re.match(r'ID=', line):
-                line = line.strip().replace('"', '')
-                operating_sys = line.split('=')[1]
-        self.operating_sys = operating_sys
-        self.version = version
-
-
-    def get_analyzer(self):
-        '''
-        Creates an instance of the applicable SystemAnalyzer child class based on
-        self.operating_sys.
-        '''
-        if self.operating_sys == 'centos':
-            self.analyzer = CentosAnalyzer(self.ssh_client, self.docker_client, self.operating_sys,
-                                           self.version)
-        elif self.operating_sys == 'ubuntu':
-            self.analyzer = UbuntuAnalyzer(self.ssh_client, self.docker_client, self.operating_sys,
-                                           self.version)
-        else:
-            logging.error(f"Unknown operating system {self.operating_sys}. This likely means we "
-                          f"haven't written a SystemAnalyzer child class for this system yet.")
 
 
 class SystemAnalyzer(ABC):
@@ -157,14 +21,17 @@ class SystemAnalyzer(ABC):
     '''
     Mode = Enum('Mode', 'dry unversion delete')
 
-    def __init__(self, ssh_client, docker_client, operating_sys, version):
+    def __init__(self, ssh_client, docker_client, op_sys, version):
         self.ssh_client = ssh_client
         self.docker_client = docker_client
 
-        self.operating_sys = operating_sys
+        self.op_sys = op_sys
         self.version = version
-        logging.debug(f"FROM {operating_sys}:{version}")
-        self.image = self.docker_client.images.pull(f"{operating_sys}:{version}")
+        logging.debug(f"FROM {op_sys}:{version}")
+        try:
+            self.image = self.docker_client.images.pull(f"{op_sys}:{version}")
+        except requests.exceptions.ConnectionError as err:
+            raise DockerDaemonError("Could not reach the Docker daemon. Is it on?")
         logging.info(f"Pulled {self.image} from Docker hub.")
 
         # All packages on the system (and versions)
@@ -232,18 +99,27 @@ class SystemAnalyzer(ABC):
         logging.debug(f"Getting configuration files associated with {package}...")
 
 
-
     def filter_packages(self, strict_versioning=True):
         '''
-        Removes packages from the list to be installed which are already in the base image.
-        strict_versioning -- if True, we'll only remove the package if the versions match
-        Note that we leave them (and their versions) in self.all_packages
+        Removes packages from the list to be installed if they would be installed as a dependency of
+        another or if they are already in the base image. Note that we leave them (and their
+        versions) in self.all_packages.
+        strict_versioning -- if True, we'll only remove the package if the versions match the base
+            image, and we will NOT do dependency analysis.
         '''
         logging.info("Filtering packages...")
         assert self.all_packages, "No packages yet. Have you run get_packages?"
 
+        # Optionally simplify the package list by analyzing dependencies.
+        if not strict_versioning:
+            pkgs_to_remove = analyze_dependencies(self.all_packages, self.get_dependencies)
+            for pkg_name in pkgs_to_remove:
+                del self.install_packages[pkg_name]
+            logging.info(f"Removing extra packages based on dependency analysis cut down "
+                         f"{len(self.all_packages)} packages to {len(self.install_packages)}.")
+
         # Get default-installed packages from Docker base image we're going to use
-        pkg_bytestring = self.docker_client.containers.run(f"{self.operating_sys}:{self.version}",
+        pkg_bytestring = self.docker_client.containers.run(f"{self.op_sys}:{self.version}",
                                                            type(self).LIST_INSTALLED, remove=True)
         # Last element is a blank line; remove it.
         pkg_list = pkg_bytestring.decode().split('\n')[:-1]
@@ -277,7 +153,7 @@ class SystemAnalyzer(ABC):
         logging.info(f"Verifying packages in {mode.name} mode...")
         self.dockerize(self.tempdir, verbose=False)
         # Now that we have a Dockerfile, build and check the packages are there
-        self.image, _ = self.docker_client.images.build(tag=f'verify{self.operating_sys}',
+        self.image, _ = self.docker_client.images.build(tag=f'verify{self.op_sys}',
                                                         path=self.tempdir)
 
         try:
@@ -363,8 +239,8 @@ class SystemAnalyzer(ABC):
                     logging.error(f"Unexpected number of values returned from line: {line.split()}")
                     raise
             if is_directory:
-                # In this case, the returned hash would just be the last thing hashed; not meaningful,
-                # so don't return it.
+                # In this case, the returned hash would just be the last thing hashed; not
+                # meaningful, so don't return it.
                 return None
             return crc
         finally:
@@ -554,305 +430,3 @@ class SystemAnalyzer(ABC):
         assert self.install_packages, "No packages yet. Have you run get_packages?"
         if verbose:
             logging.info("Creating Dockerfile...")
-
-
-
-class CentosAnalyzer(SystemAnalyzer):
-    '''
-    Inherits from SystemAnalyzer to provide functions for analyzing CentOS/yum style systems.
-    '''
-    LIST_INSTALLED = 'yum list installed -d 0'
-
-    @staticmethod
-    def parse_pkg_line(line):
-        '''
-        Parses yum-style package lines.
-        Returns a tuple of package name, package version.
-        '''
-        #assumes line comes in as something like 'curl.x86_64   [1:]7.29.0-42.el7'
-        clean_line = line.strip().split(maxsplit=2)
-        name = clean_line[0] #curl.x86_64
-        name = name.rsplit(sep='.', maxsplit=1)[0]   #curl
-        ver = clean_line[1] #1:7.29.0-42.el7
-        ver = ver.split(sep='-', maxsplit=2)[0]    #1:7.29.0
-        # If epoch number exists, get rid of it.
-        ver = ver.split(':')[-1] #7.29.0
-        return (name, ver)
-
-    @staticmethod
-    def parse_all_pkgs(iterable):
-        '''
-        Parses an iterable of yum list installed -d 0 style output.
-        Returns a dictionary of package versions keyed on package name.
-        '''
-        packages = {}
-        for line in iterable:
-            if re.match(r'Installed Packages', line):
-                continue
-            pkg_name, pkg_ver = CentosAnalyzer.parse_pkg_line(line)
-            packages[pkg_name] = pkg_ver
-        return packages
-
-
-    def get_packages(self):
-        '''
-        Gets all packages and versions from the target system.
-        '''
-        super().get_packages()
-        _, stdout, _ = self.ssh_client.exec_command(CentosAnalyzer.LIST_INSTALLED)
-        self.all_packages = CentosAnalyzer.parse_all_pkgs(stdout)
-        # Note that this is a shallow copy; if you add more info to the dictionaries later on,
-        # you'll have to change this.
-        self.install_packages = self.all_packages.copy()
-        logging.debug(self.all_packages)
-
-
-    def get_dependencies(self, package):
-        '''
-        Gets the dependencies of a particular package on the target system. (Currently uses rpm.)
-        package -- the package to get deps for
-        '''
-        super().get_dependencies(package)
-        # Issue--/bin/sh doesn't look like a package to me. what do we do about that?
-        _, stdout, _ = self.ssh_client.exec_command(f"rpm -qR {package}")
-        # TODO: I have no idea which regex is correct--one takes me from 420 to 256 and
-        # the other goes to 311
-        # deps = [re.split('\W+', line.strip())[0] for line in stdout]
-        deps = {line.strip() for line in stdout}
-        logging.debug(f"{package} > {deps}")
-        return deps
-
-    def get_config_files_for(self, package):
-        '''
-        Returns a list of file paths to configuration files for the specified package.
-        package -- the pacakge whose configurations we are interested in
-        '''
-        super().get_config_files_for(package)
-        _, stdout, _ = self.ssh_client.exec_command(f"rpm -qc {package}")
-        configs = {line.strip() for line in stdout}
-        # This is an alias for no files.
-        if '(contains no files)' in configs:
-            configs = set()
-        logging.debug(f"{package} has the following config files: {configs}")
-        return configs
-
-    def dockerize(self, folder, verbose=True):
-        '''
-        Creates Dockerfile from parameters discovered by the class.
-        Make sure to call all analysis functions beforehand; this function doesn't actually check
-        for that.
-        folder -- the folder to put the Dockerfile in
-        verbose -- whether to emit log statements
-        '''
-        super().dockerize(folder, verbose)
-        with open(os.path.join(folder, 'Dockerfile'), 'w') as dockerfile:
-            dockerfile.write(f"FROM {self.operating_sys}:{self.version}\n")
-
-            dockerfile.write(f"RUN yum -y install ")
-            for name, ver in self.install_packages.items():
-                if ver:
-                    dockerfile.write(f"{name}-{ver} ")
-                else:
-                    dockerfile.write(f"{name} ")
-            dockerfile.write("\n")
-        if verbose:
-            logging.info(f"Your Dockerfile is in {folder}")
-
-
-class UbuntuAnalyzer(SystemAnalyzer):
-    '''
-    Inherits from SystemAnalyzer to provide functions for analyzing Ubuntu/apt style systems.
-    '''
-    LIST_INSTALLED = 'apt list --installed'
-
-
-    @staticmethod
-    def parse_pkg_line(line):
-        '''
-        Parses apt-style package lines.
-        Returns a tuple of package name, package version.
-        '''
-        #assumes line comes in as something like
-        # 'accountsservice/bionic,now 0.6.45-1ubuntu1 amd64 [installed,automatic]'
-        clean_line = line.strip() # Trim whitespace
-        name = clean_line.split('/')[0]
-        ver = clean_line.split('now ')[1] # 0.6.45-1ubuntu1 amd64 [installed,automatic]
-        ver = ver.split(' ')[0] # 0.6.45-1ubuntu1
-        return (name, ver)
-
-    @staticmethod
-    def parse_all_pkgs(iterable):
-        '''
-        Parses an iterable of apt list --installed style output.
-        Returns a dictionary of package versions keyed on package name.
-        '''
-        packages = {}
-        for line in iterable:
-            if re.match(r'Listing', line):
-                continue
-            pkg_name, pkg_ver = UbuntuAnalyzer.parse_pkg_line(line)
-            packages[pkg_name] = pkg_ver
-        return packages
-
-
-    def get_packages(self):
-        '''
-        Gets all packages and versions from the target system.
-        '''
-        super().get_packages()
-        _, stdout, _ = self.ssh_client.exec_command(UbuntuAnalyzer.LIST_INSTALLED)
-        self.all_packages = UbuntuAnalyzer.parse_all_pkgs(stdout)
-        # Note that this is a shallow copy; if you add more info to the dictionaries later on,
-        # you'll have to change this.
-        self.install_packages = self.all_packages.copy()
-        logging.debug(self.all_packages)
-
-
-    def get_dependencies(self, package):
-        '''
-        TODO: this function is never called, and it's for rpm besides
-        NEVER CALLED :/
-        Gets the dependencies of a particular package on the target system. (Currently uses rpm.)
-        package -- the package to get deps for
-        '''
-        super().get_dependencies(package)
-        # Issue--/bin/sh doesn't look like a package to me. what do we do about that?
-        _, stdout, _ = self.ssh_client.exec_command(f"rpm -qR {package}")
-        # I have no idea which regex is correct--one takes me from 420 to 256 and the other goes to
-        # 311
-        # deps = [re.split('\W+', line.strip())[0] for line in stdout]
-        deps = {line.strip() for line in stdout}
-        logging.debug(f"{package} > {deps}")
-        return deps
-
-    def get_config_files_for(self, package):
-        '''
-        Returns a list of file paths to configuration files for the specified package.
-        package -- the pacakge whose configurations we are interested in
-        '''
-        super().get_config_files_for(package)
-        _, stdout, _ = self.ssh_client.exec_command(f"cat /var/lib/dpkg/info/{package}.conffiles")
-        configs = {line.strip() for line in stdout}
-        logging.debug(f"{package} has the following config files: {configs}")
-        return configs
-
-    def assemble_packages(self):
-        '''
-        Assembles all packages and versions (if applicable) into a string for installer, and returns
-        the string.
-        '''
-        install_all = ""
-        for name, ver in self.install_packages.items():
-            if ver:
-                install_all += f"{name}={ver} "
-            else:
-                install_all += f"{name} "
-        return install_all
-
-    def verify_packages(self, mode=SystemAnalyzer.Mode.dry):
-        '''
-        Looks through package list to see which packages are uninstallable.
-        mode -- in dry mode, just log bad pkgs. in delete mode, delete bad pkgs from the list.
-                in unversion mode, unspecify version.
-        Returns True if all packages got installed correctly; returns False otherwise.
-        '''
-        assert self.install_packages, "No packages yet. Have you run get_packages?"
-        logging.info(f"Verifying packages in {mode.name} mode...")
-        # Write prelude, create image.
-        with open(os.path.join(self.tempdir, 'Dockerfile'), 'w') as dockerfile:
-            dockerfile.write(f"FROM {self.operating_sys}:{self.version}\n")
-            dockerfile.write(f"ENV DEBIAN_FRONTEND=noninteractive\n")
-            dockerfile.write(f"RUN apt-get update\n")
-            # I know this is supposed to go on the same line as the installs normally, but
-        self.image, _ = self.docker_client.images.build(tag=f'verify{self.operating_sys}',
-                                                        path=self.tempdir)
-
-        # Try installing all of the packages.
-        install_all = "apt-get -y install "
-        install_all += self.assemble_packages()
-
-        try:
-            # Spin up the container and let it do its thing.
-            container = self.docker_client.containers.run(self.image.id, command=install_all,
-                                                          detach=True)
-            container.wait()
-
-            # Parse the container's output.
-            missing_pkgs = re.findall("E: Unable to locate package (.*)\n", container.logs().decode())
-            missing_vers = re.findall("' for '(.*)' was not found\n", container.logs().decode())
-
-            if not re.search("E: ", container.logs().decode()):
-                logging.info("All packages installed properly.")
-                container.remove()
-                return True
-
-            if not missing_pkgs and not missing_vers:
-                logging.error("No missing packages or versions found, but there was an error:\n"
-                              f"{container.logs().decode()}")
-                # Intentionally not removing the container for debugging purposes.
-                return False
-
-            # Report on missing packages.
-            logging.warning(f"Could not find the following packages: {missing_pkgs}")
-            logging.warning(f"Could not find versions for the following packages: {missing_vers}")
-            if mode == self.Mode.unversion:
-                logging.info(f"Now removing version numbers from bad packages...")
-                for pkg_name in missing_vers:
-                    self.install_packages[pkg_name] = False
-            elif mode == self.Mode.delete:
-                logging.info(f"Now removing bad packages...")
-                for pkg_name in itertools.chain(missing_pkgs, missing_vers):
-                    del self.install_packages[pkg_name]
-            return False
-        finally:
-            container.remove()
-
-
-    def dockerize(self, folder, verbose=True):
-        '''
-        Creates Dockerfile from parameters discovered by the class.
-        Make sure to call all analysis functions beforehand; this function doesn't actually check
-        for that.
-        folder -- the folder to put the Dockerfile in
-        verbose -- whether to emit log statements
-        '''
-        super().dockerize(folder, verbose)
-        with open(os.path.join(folder, 'Dockerfile'), 'w') as dockerfile:
-            dockerfile.write(f"FROM {self.operating_sys}:{self.version}\n")
-
-            dockerfile.write(f"ENV DEBIAN_FRONTEND=noninteractive\n")
-
-            dockerfile.write(f"RUN apt-get update && apt-get install -y ")
-            dockerfile.write(self.assemble_packages())
-            dockerfile.write("\n")
-        if verbose:
-            logging.info(f"Your Dockerfile is in {folder}")
-
-
-def group_strings(indexable, char_count=100000):
-    '''
-    Generator to group the indexable's items into space-separated strings which are about char_count
-    characters long.
-    '''
-    curr_string = ""
-    for item in indexable:
-        if len(curr_string) > char_count:
-            yield curr_string
-            curr_string = ""
-        curr_string += item + " "
-    if curr_string:
-        yield curr_string
-
-
-if __name__ == "__main__":
-    logging.info('Beginning analysis...')
-    with GeneralAnalyzer(hostname=HOSTNAME, port=PORT, username=USERNAME) as kowalski:
-        kowalski.analyzer.get_packages()
-        kowalski.analyzer.filter_packages()
-        for md in (SystemAnalyzer.Mode.dry, SystemAnalyzer.Mode.unversion,
-                   SystemAnalyzer.Mode.delete):
-            if kowalski.analyzer.verify_packages(mode=md):
-                break
-        kowalski.analyzer.dockerize(tempfile.mkdtemp())
-        kowalski.analyzer.analyze_files(['/bin/', '/etc/', '/lib/', '/opt/', '/sbin/', '/usr/'])
-        kowalski.analyzer.get_config_differences()

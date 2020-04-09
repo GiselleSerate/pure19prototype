@@ -283,7 +283,7 @@ class SystemAnalyzer(ABC):
         return crc
 
 
-    def analyze_files(self, allowlist = {}, blocklist = {}):
+    def analyze_files(self, allowlist={'/'}, blocklist=None):
         '''
         Analyze all subdirectories of places (list of directories). Determine how many are on the
         container/VM/both, and of the files in common which are different.
@@ -390,7 +390,7 @@ class SystemAnalyzer(ABC):
                               f"{self.vm_configs - self.container_configs}")
 
 
-    def compare_names(self, allowlist, blocklist):
+    def compare_names(self, allowlist, blocklist=None):
         '''
         Takes an iterable of folders to look in for differences.
         Returns a tuple of filenames only on the container, filenames on both, and filenames only on
@@ -398,17 +398,22 @@ class SystemAnalyzer(ABC):
         '''
         docker_filenames = set()
         vm_filenames = set()
-        blocklist_string = '\('
-        for folder in blocklist:
-            blocklist_string = blocklist_string + ' -name ' + folder + ' -o'
-        blocklist_string = blocklist_string[:-2] + '\)'
+        if blocklist:
+            blocklist_string = '\('
+            for folder in blocklist:
+                blocklist_string = blocklist_string + ' -name ' + folder + ' -o'
+            blocklist_string = blocklist_string[:-2] + '\) -prune'
+        else:
+            blocklist_string = ""
         for folder in allowlist:
-            _, stdout, _ = self.ssh_client.exec_command(f"find {folder} -type f  {blocklist_string} -prune")
+            _, stdout, _ = self.ssh_client.exec_command(f"find {folder} -type f "
+                                                        + blocklist_string)
             for line in stdout:
                 vm_filenames.add(line.strip())
             try:
                 container = self.docker_client.containers.run(image=self.image.id,
-                                                              command=f"find {folder} -type f",
+                                                              command=f"find {folder} -type f"
+                                                              + blocklist_string,
                                                               detach=True)
                 container.wait()
                 output = container.logs().decode()

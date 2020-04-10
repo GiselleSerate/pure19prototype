@@ -283,38 +283,38 @@ class SystemAnalyzer(ABC):
         return crc
 
 
-    def analyze_files(self, places):
+    def analyze_files(self, allowlist={'/'}, blocklist=None):
         '''
         Analyze all subdirectories of places (list of directories). Determine how many are on the
         container/VM/both, and of the files in common which are different.
         Currently we just dump everything to logs; eventually we may want to return some of this.
         '''
-        logging.info(f"Diffing subdirectories of {places}")
+        logging.info(f"Diffing subdirectories of {allowlist}")
         unique = {}
-        for place in places:
-            unique[place] = self.compare_names([place])
-        for place, diff_tuple in unique.items():
-            logging.info(f"{place} has {len(diff_tuple[0])} files unique to the container, "
+        for folder in allowlist:
+            unique[folder] = self.compare_names([folder], blocklist)
+        for folder, diff_tuple in unique.items():
+            logging.info(f"{folder} has {len(diff_tuple[0])} files unique to the container, "
                          f"{len(diff_tuple[1])} files shared, and {len(diff_tuple[2])} files "
                          "unique to the VM")
-            self.file_logger.info(f"PLACE: {place}")
+            self.file_logger.info(f"PLACE: {folder}")
             self.file_logger.info(f"Just container ({len(diff_tuple[0])}):\n"
                                   f"{diff_tuple[0]}")
             self.file_logger.info(f"Shared ({len(diff_tuple[1])}):\n{diff_tuple[1]}")
             self.file_logger.info(f"Just VM ({len(diff_tuple[2])}):\n{diff_tuple[2]}")
             # Now cksum the shared ones
             modified_files = []
-            for place_str in group_strings(list(diff_tuple[1])):
-                self.get_hash_from_container(place_str, is_directory=False)
-                self.get_hash_from_vm(place_str, is_directory=False)
+            for folder_str in group_strings(list(diff_tuple[1])):
+                self.get_hash_from_container(folder_str, is_directory=False)
+                self.get_hash_from_vm(folder_str, is_directory=False)
             for file in diff_tuple[1]:
                 container_h = self.container_hashes[file]["hash"]
                 vm_h = self.vm_hashes[file]["hash"]
                 if container_h != vm_h:
                     modified_files.append(file)
-            logging.info(f"In {place}, {len(modified_files)} out of {len(diff_tuple[1])} files "
+            logging.info(f"In {folder}, {len(modified_files)} out of {len(diff_tuple[1])} files "
                          f"found on both systems were different.")
-            logging.debug(f"These files in {place} were different: {modified_files}")
+            logging.debug(f"These files in {folder} were different: {modified_files}")
             self.file_logger.info(f"Same name, but different cksum "
                                   f"({len(modified_files)}):\n{modified_files}")
 
@@ -390,7 +390,7 @@ class SystemAnalyzer(ABC):
                               f"{self.vm_configs - self.container_configs}")
 
 
-    def compare_names(self, places):
+    def compare_names(self, allowlist, blocklist=None):
         '''
         Takes an iterable of folders to look in for differences.
         Returns a tuple of filenames only on the container, filenames on both, and filenames only on
@@ -398,13 +398,22 @@ class SystemAnalyzer(ABC):
         '''
         docker_filenames = set()
         vm_filenames = set()
-        for folder in places:
-            _, stdout, _ = self.ssh_client.exec_command(f"find {folder} -type f")
+        if blocklist:
+            blocklist_string = '\('
+            for folder in blocklist:
+                blocklist_string = blocklist_string + ' -name ' + folder + ' -o'
+            blocklist_string = blocklist_string[:-2] + '\) -prune'
+        else:
+            blocklist_string = ""
+        for folder in allowlist:
+            _, stdout, _ = self.ssh_client.exec_command(f"find {folder} -type f "
+                                                        + blocklist_string)
             for line in stdout:
                 vm_filenames.add(line.strip())
             try:
                 container = self.docker_client.containers.run(image=self.image.id,
-                                                              command=f"find {folder} -type f",
+                                                              command=f"find {folder} -type f"
+                                                              + blocklist_string,
                                                               detach=True)
                 container.wait()
                 output = container.logs().decode()

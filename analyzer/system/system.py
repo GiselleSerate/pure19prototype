@@ -3,6 +3,7 @@ SystemAnalyzer is an abstract base class which may be extended to create more sp
     for certain OSs or package managers.
 '''
 
+import json
 import logging
 import re
 import tempfile
@@ -43,6 +44,9 @@ class SystemAnalyzer(ABC):
         # number different from the original system
         self.unversion_packages = {}
 
+        # A dictionary from packages on the VM to their associated file names
+        self.packages_files = {}
+
         # Keyed on path, each contains dictionary: {'hash': hash, 'size': size}
         self.vm_hashes = {}
         self.container_hashes = {}
@@ -70,6 +74,22 @@ class SystemAnalyzer(ABC):
         '''
         Parse the output of the applicable LIST_INSTALLED command. Return a dictionary of
         package: version.
+        '''
+        ...
+
+    @abstractmethod
+    def list_files_in_packages(self, pkgs):
+        '''
+        Takes a space-separated string of packages.
+        Gets the list of files installed as part of each package.
+        Returns a list of lists of filenames.
+        '''
+        ...
+
+    @abstractmethod
+    def files_changed_from_package(self, pkg):
+        '''
+        Returns the list of files coming from pkg whose checksums don't match their original checksums.
         '''
         ...
 
@@ -284,6 +304,17 @@ class SystemAnalyzer(ABC):
             return None
         return crc
 
+    def get_file_pkg_assocs(self):
+        '''
+        Populates self.packages_files with the pairings from each package to the 
+        files that were installed as part of it.
+        Returns nothing.
+        '''
+        logging.info("Gathering file-package associations...")
+
+        files = self.list_files_in_packages(self.all_packages)
+        for i, pkg in enumerate(self.all_packages):
+            self.packages_files[pkg] = files[i]
 
     def analyze_files(self, allowlist=None, blocklist=None):
         '''
@@ -300,7 +331,7 @@ class SystemAnalyzer(ABC):
         unique = {}
         for folder in allowlist:
             unique[folder] = self.compare_names(folder, blocklist)
-
+            analysis_results = {}        
         for folder, diff_tuple in unique.items():
             logging.info(f"{folder} has {len(diff_tuple[0])} files unique to the container, "
                          f"{len(diff_tuple[1])} files shared, and {len(diff_tuple[2])} files "
@@ -311,7 +342,7 @@ class SystemAnalyzer(ABC):
             self.file_logger.info(f"Shared ({len(diff_tuple[1])}):\n{diff_tuple[1]}")
             self.file_logger.info(f"Just VM ({len(diff_tuple[2])}):\n{diff_tuple[2]}")
             # Now cksum the shared ones
-            modified_files = []
+            modified_files = set()
             for folder_str in group_strings(list(diff_tuple[1])):
                 self.get_hash_from_container(folder_str, is_directory=False)
                 self.get_hash_from_vm(folder_str, is_directory=False)
@@ -319,12 +350,97 @@ class SystemAnalyzer(ABC):
                 container_h = self.container_hashes[file]["hash"]
                 vm_h = self.vm_hashes[file]["hash"]
                 if container_h != vm_h:
-                    modified_files.append(file)
+                    modified_files.add(file)
             logging.info(f"In {folder}, {len(modified_files)} out of {len(diff_tuple[1])} files "
                          f"found on both systems were different.")
             logging.debug(f"These files in {folder} were different: {modified_files}")
             self.file_logger.info(f"Same name, but different cksum "
                                   f"({len(modified_files)}):\n{modified_files}")
+            analysis_results[folder] = self.examine_files_and_packages(blocklist, diff_tuple[0], modified_files, diff_tuple[2])
+
+        f = open("file_difference_analysis.json", "w+")
+        f.write(json.dumps(analysis_results, indent=2))
+        f.close()
+
+    def examine_files_and_packages(self, blocklist, just_cont, shared, just_vm):
+        '''
+        Takes the blocklist and three sets: files only on the container, files on both, and files only on the vm.
+        For each package on the VM, look at its associated files and try to determine which ones have
+        been modified after their installation.
+        Returns a dictionary with 5 keys: files added to a package after installation, files deleted from packages after
+        installation, files modified after installation, files whose differences may or may not be due to 
+        version mismatches, and files that are not associated with any packages.
+        '''
+        logging.info(f"Analyzing files installed from packages to determine which ones have been modified")
+
+        modified_files = set()
+        added_files = set()
+        deleted_files = set()
+        unclassified_files = set()
+        different_files_not_from_pkgs = set()
+        seen = set()
+
+        # populate dictionary if empty
+        if len(self.packages_files) == 0:
+            self.get_file_pkg_assocs()
+            logging.info("...done!")
+
+        container = self.docker_client.containers.run(image=self.image.id, 
+            command=type(self).LIST_INSTALLED, detach=True)
+        container.wait()
+        output = container.logs().decode()
+        # Last element is a blank line; remove it.
+        pkg_list = output.split('\n')[:-1]
+        cont_pkgs = type(self).parse_all_pkgs(pkg_list)
+
+        for pkg in self.all_packages: 
+            pkg_files = self.packages_files[pkg]
+            if pkg in cont_pkgs and self.all_packages[pkg] == cont_pkgs[pkg]: 
+                for file in pkg_files:
+                    seen.add(file)
+                    if file in just_vm:
+                        added_files.add(file)
+                    elif file in just_cont:
+                        deleted_files.add(file)
+                    elif file in shared:
+                        modified_files.add(file)
+                    else:
+                        #ignore file, it is the same on both vm and container
+                        ...
+            else: 
+                changed_files = self.files_changed_from_package(pkg)    
+                for file in pkg_files:
+                    seen.add(file)
+                    if file in just_vm:
+                        if file in changed_files:
+                            added_files.add(file)
+                        else:
+                            unclassified_files.add(file)
+                    elif file in just_cont:
+                        deleted_files.add(file)
+                    elif file in shared:
+                        if file in changed_files:
+                            modified_files.add(file)
+                        else:
+                            unclassified_files.add(file)
+                    else:
+                        #ignore file, it is the same on both vm and container
+                        ... 
+        different_files_not_from_pkgs = (just_cont - seen) | (just_vm - seen) | (shared - seen)
+        logging.info(f"Number of files on only the container not from packages: {len(just_cont - seen)}")
+        logging.info(f"Number of files on only the vm not from packages: {len(just_vm - seen)}")
+        logging.info(f"Number of files on both, not from packages: {len(shared - seen)}")
+        logging.info(f"Total number of different files not from packages: {len(different_files_not_from_pkgs)}")
+
+        data_dict = \
+            {\
+                'added files': list(added_files),\
+                'deleted files': list(deleted_files),\
+                'modified files': list(modified_files),\
+                'unclassified files': list(unclassified_files),\
+                'files not from packages': list(different_files_not_from_pkgs)\
+            }
+        return data_dict
 
 
     def compare_names(self, location='/', blocklist=None):

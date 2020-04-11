@@ -9,6 +9,8 @@ import re
 import requests.exceptions
 
 from .system import SystemAnalyzer
+from ..utils import group_strings
+
 
 
 
@@ -49,6 +51,54 @@ class CentosAnalyzer(SystemAnalyzer):
             pkg_name, pkg_ver = CentosAnalyzer.parse_pkg_line(line)
             packages[pkg_name] = pkg_ver
         return packages
+
+    def list_files_in_packages(self, pkgs):
+        '''
+        Takes an iterable of packages.
+        Gets the list of files installed as part of each package.
+        Returns a list of lists of filenames.
+        '''
+        files = [[]] * len(pkgs)
+        i = 0
+        pkg_strings = group_strings(pkgs, 500)
+        cmd_strings = []
+        for pkg_string in pkg_strings:
+            cmd_string = ""
+            for pkg in pkg_string.split():
+                cmd_string += f" && echo \"\" && rpm -ql {pkg}"
+            cmd_strings.append(cmd_string[15:])
+
+        for cmd in cmd_strings:
+            _, stdout, _ = self.ssh_client.exec_command(cmd) 
+            for line in stdout:
+                line = line.strip()
+                if (re.search("is not installed", line)):
+                    #do nothing
+                    ...
+                elif (re.search("contains no files", line)):
+                    # do nothing
+                    ...
+                elif line == '':
+                    i += 1
+                else:
+                    files[i].append(line.strip()) 
+            i+=1
+        return files
+
+    def files_changed_from_package(self, pkg):
+        '''
+        Returns the list of files coming from pkg whose checksums don't match their original checksums.
+        '''
+        files = []
+        _, stdout, _ = self.ssh_client.exec_command(f"rpm -V {pkg}") 
+        for line in stdout:
+            if (re.search("is not installed", line)):
+                return []
+            elif (re.search("contains no files", line)):
+                return []
+            elif '5' in line.split()[0]:
+                files.append(line.split()[2].strip())
+        return files
 
 
     def get_packages(self):

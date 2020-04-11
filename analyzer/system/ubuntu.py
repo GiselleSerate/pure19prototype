@@ -34,6 +34,7 @@ class UbuntuAnalyzer(SystemAnalyzer):
         ver = ver.split(' ')[0] # 0.6.45-1ubuntu1
         return (name, ver)
 
+
     @staticmethod
     def parse_all_pkgs(iterable):
         '''
@@ -79,6 +80,7 @@ class UbuntuAnalyzer(SystemAnalyzer):
         logging.debug(f"{package} > {deps}")
         return deps
 
+
     def get_config_files_for(self, package):
         '''
         Returns a list of file paths to configuration files for the specified package.
@@ -89,6 +91,7 @@ class UbuntuAnalyzer(SystemAnalyzer):
         configs = {line.strip() for line in stdout}
         logging.debug(f"{package} has the following config files: {configs}")
         return configs
+
 
     def assemble_packages(self):
         '''
@@ -102,6 +105,7 @@ class UbuntuAnalyzer(SystemAnalyzer):
             else:
                 install_all += f"{name} "
         return install_all
+
 
     def verify_packages(self, mode=SystemAnalyzer.Mode.dry):
         '''

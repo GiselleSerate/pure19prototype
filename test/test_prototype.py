@@ -40,6 +40,7 @@ def test_local_basic_build_centos():
             no_wrong_packages = kowalski.analyzer.verify_packages(mode=SystemAnalyzer.Mode.dry)
             assert no_wrong_packages
 
+
 def test_local_basic_build_ubuntu():
     '''
     Test that all packages from our ubuntu system can be installed

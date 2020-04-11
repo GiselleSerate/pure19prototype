@@ -91,6 +91,7 @@ class SystemAnalyzer(ABC):
         '''
         logging.debug(f"Getting dependencies for {package}...")
 
+
     @abstractmethod
     def get_config_files_for(self, package):
         '''
@@ -323,6 +324,57 @@ class SystemAnalyzer(ABC):
                                   f"({len(modified_files)}):\n{modified_files}")
 
 
+    def compare_names(self, location='/', blocklist=None):
+        '''
+        Compares names of the entire system, excluding anything in the (absolute) paths in the
+        blocklist.
+        Blocklist paths may go to folders, in which case they must be formatted /path/folder/*
+        Otherwise, they may go to files, in which case they must be formatted /path/file
+        Returns a tuple of filenames only on the container, filenames on both, and filenames only on
+        the VM.
+        '''
+        docker_filenames = set()
+        vm_filenames = set()
+
+        # Strip trailing slashes from location.
+        location = location.rstrip('/')
+        regex = re.compile(location.replace('/', r'\/') + r"\/*")
+        command = "find . -type f "
+
+        for place in blocklist:
+            if place.startswith(location):
+                trimmed = regex.sub('./', place)
+                command += f"! -path '{trimmed}' "
+        logging.info(f"Running command: {'cd ' + location + ' && ' + command}")
+
+        # Analyze VM.
+        _, vm_out, _ = self.ssh_client.exec_command('cd ' + location + ' && ' + command)
+        for line in vm_out:
+            vm_filenames.add(line.strip().replace('.', location, 1))
+
+        # Analyze container.
+        try:
+            container = self.docker_client.containers.run(image=self.image.id,
+                                                          command="tail -f dev/null",
+                                                          detach=True)
+            _, (byteout, _) = container.exec_run(cmd=command, workdir=location, demux=True)
+
+            if byteout:
+                con_out = byteout.decode().split('\n')[:-1]
+                for line in con_out:
+                    # TODO: selinux seems to break things; ignoring for now.
+                    if ": Permission denied" not in line:
+                        docker_filenames.add(line.replace('.', location, 1))
+
+            logging.debug(f"The total number of files in the VM is {len(vm_filenames)}")
+            logging.debug(f"The total number of files in the container is {len(docker_filenames)}")
+            return (docker_filenames - vm_filenames,
+                    vm_filenames & docker_filenames,
+                    vm_filenames - docker_filenames)
+        finally:
+            container.remove(force=True)
+
+
     def get_config_differences(self):
         '''
         Compares the checksums of all config files on the system.
@@ -393,56 +445,6 @@ class SystemAnalyzer(ABC):
                               f"({len(self.vm_configs - self.container_configs)}):\n"
                               f"{self.vm_configs - self.container_configs}")
 
-
-    def compare_names(self, location='/', blocklist=None):
-        '''
-        Compares names of the entire system, excluding anything in the (absolute) paths in the
-        blocklist.
-        Blocklist paths may go to folders, in which case they must be formatted /path/folder/*
-        Otherwise, they may go to files, in which case they must be formatted /path/file
-        Returns a tuple of filenames only on the container, filenames on both, and filenames only on
-        the VM.
-        '''
-        docker_filenames = set()
-        vm_filenames = set()
-
-        # Strip trailing slashes from location.
-        location = location.rstrip('/')
-        regex = re.compile(location.replace('/', r'\/') + r"\/*")
-        command = "find . -type f "
-
-        for place in blocklist:
-            if place.startswith(location):
-                trimmed = regex.sub('./', place)
-                command += f"! -path '{trimmed}' "
-        logging.info(f"Running command: {'cd ' + location + ' && ' + command}")
-
-        # Analyze VM.
-        _, vm_out, _ = self.ssh_client.exec_command('cd ' + location + ' && ' + command)
-        for line in vm_out:
-            vm_filenames.add(line.strip().replace('.', location, 1))
-
-        # Analyze container.
-        try:
-            container = self.docker_client.containers.run(image=self.image.id,
-                                                          command="tail -f dev/null",
-                                                          detach=True)
-            _, (byteout, _) = container.exec_run(cmd=command, workdir=location, demux=True)
-
-            if byteout:
-                con_out = byteout.decode().split('\n')[:-1]
-                for line in con_out:
-                    # TODO: selinux seems to break things; ignoring for now.
-                    if ": Permission denied" not in line:
-                        docker_filenames.add(line.replace('.', location, 1))
-
-            logging.debug(f"The total number of files in the VM is {len(vm_filenames)}")
-            logging.debug(f"The total number of files in the container is {len(docker_filenames)}")
-            return (docker_filenames - vm_filenames,
-                    vm_filenames & docker_filenames,
-                    vm_filenames - docker_filenames)
-        finally:
-            container.remove(force=True)
 
     @abstractmethod
     def dockerize(self, folder, verbose=True):

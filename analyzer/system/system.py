@@ -287,8 +287,11 @@ class SystemAnalyzer(ABC):
 
     def analyze_files(self, allowlist=None, blocklist=None):
         '''
-        Analyze all subdirectories of places (list of directories). Determine how many are on the
-        container/VM/both, and of the files in common which are different.
+        Analyze all subdirectories of folders in the allowlist. Determine how many are on the
+        container/VM/both, and of the files in common which are different. Also accepts a blocklist
+        of folders and/or files to not investigate.
+        Blocklist paths may go to folders, in which case they must be formatted /path/folder/*
+        Otherwise, they may go to files, in which case they must be formatted /path/file
         Currently we just dump everything to logs; eventually we may want to return some of this.
         '''
         if not allowlist:

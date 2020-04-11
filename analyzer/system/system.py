@@ -331,7 +331,7 @@ class SystemAnalyzer(ABC):
         unique = {}
         for folder in allowlist:
             unique[folder] = self.compare_names(folder, blocklist)
-            analysis_results = {}        
+        analysis_results = {}
         for folder, diff_tuple in unique.items():
             logging.info(f"{folder} has {len(diff_tuple[0])} files unique to the container, "
                          f"{len(diff_tuple[1])} files shared, and {len(diff_tuple[2])} files "

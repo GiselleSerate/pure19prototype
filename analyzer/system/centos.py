@@ -18,6 +18,7 @@ class CentosAnalyzer(SystemAnalyzer):
     '''
     LIST_INSTALLED = 'yum list installed -d 0'
 
+
     @staticmethod
     def parse_pkg_line(line):
         '''
@@ -33,6 +34,7 @@ class CentosAnalyzer(SystemAnalyzer):
         # If epoch number exists, get rid of it.
         ver = ver.split(':')[-1] #7.29.0
         return (name, ver)
+
 
     @staticmethod
     def parse_all_pkgs(iterable):
@@ -77,6 +79,7 @@ class CentosAnalyzer(SystemAnalyzer):
         logging.debug(f"{package} > {deps}")
         return deps
 
+
     def get_config_files_for(self, package):
         '''
         Returns a list of file paths to configuration files for the specified package.
@@ -90,6 +93,7 @@ class CentosAnalyzer(SystemAnalyzer):
             configs = set()
         logging.debug(f"{package} has the following config files: {configs}")
         return configs
+
 
     def dockerize(self, folder, verbose=True):
         '''

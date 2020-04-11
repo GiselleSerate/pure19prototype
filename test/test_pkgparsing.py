@@ -16,6 +16,7 @@ def test_centos_basic_parse():
     assert pkg_name == 'curl'
     assert pkg_version == '7.29.0'
 
+
 def test_centos_epoch_parse():
     '''
     Test that epoch numbers dont mess with parsing 'curl.x86_64   1:7.29.0-42.el7'
@@ -24,6 +25,7 @@ def test_centos_epoch_parse():
     pkg_name, pkg_version = CentosAnalyzer.parse_pkg_line(line)
     assert pkg_name == 'curl'
     assert pkg_version == '7.29.0'
+
 
 def test_centos_extra_dash_parse():
     '''
@@ -34,6 +36,7 @@ def test_centos_extra_dash_parse():
     pkg_name, pkg_version = CentosAnalyzer.parse_pkg_line(line)
     assert pkg_name == 'java-1.8.0-openjdk'
     assert pkg_version == '1.8.0.212.b04'
+
 
 def test_ubuntu_parse():
     '''

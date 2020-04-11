@@ -1,3 +1,7 @@
+'''
+What to run when you try to run the package as a program.
+'''
+
 import logging
 import tempfile
 
@@ -14,5 +18,7 @@ with GeneralAnalyzer(host=HOST) as kowalski:
         if kowalski.analyzer.verify_packages(mode=md):
             break
     kowalski.analyzer.dockerize(tempfile.mkdtemp())
-    kowalski.analyzer.analyze_files(['/bin/', '/etc/', '/lib/', '/opt/', '/sbin/', '/usr/', '/var/'], ['/var/tmp/'])
+    kowalski.analyzer.analyze_files(allowlist=['/bin/', '/etc/', '/lib/', '/opt/', '/sbin/',
+                                               '/usr/', '/var/'],
+                                    blocklist=['/var/tmp/*', '/etc/selinux/*', '/etc/tuned/*'])
     kowalski.analyzer.get_config_differences()

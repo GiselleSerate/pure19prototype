@@ -4,6 +4,7 @@ SystemAnalyzer is an abstract base class which may be extended to create more sp
 '''
 
 import logging
+import re
 import tempfile
 
 from abc import ABC, abstractmethod
@@ -192,7 +193,7 @@ class SystemAnalyzer(ABC):
 
             return there == total
         finally:
-            container.remove()
+            container.remove(force=True)
 
 
     def get_hash_from_container(self, filepath, is_directory=False):
@@ -244,7 +245,7 @@ class SystemAnalyzer(ABC):
                 return None
             return crc
         finally:
-            container.remove()
+            container.remove(force=True)
 
 
     def get_hash_from_vm(self, filepath, is_directory=False):
@@ -283,16 +284,19 @@ class SystemAnalyzer(ABC):
         return crc
 
 
-    def analyze_files(self, allowlist={'/'}, blocklist=None):
+    def analyze_files(self, allowlist=None, blocklist=None):
         '''
         Analyze all subdirectories of places (list of directories). Determine how many are on the
         container/VM/both, and of the files in common which are different.
         Currently we just dump everything to logs; eventually we may want to return some of this.
         '''
+        if not allowlist:
+            allowlist = {'/'}
         logging.info(f"Diffing subdirectories of {allowlist}")
         unique = {}
         for folder in allowlist:
-            unique[folder] = self.compare_names([folder], blocklist)
+            unique[folder] = self.compare_names(folder, blocklist)
+
         for folder, diff_tuple in unique.items():
             logging.info(f"{folder} has {len(diff_tuple[0])} files unique to the container, "
                          f"{len(diff_tuple[1])} files shared, and {len(diff_tuple[2])} files "
@@ -390,42 +394,55 @@ class SystemAnalyzer(ABC):
                               f"{self.vm_configs - self.container_configs}")
 
 
-    def compare_names(self, allowlist, blocklist=None):
+    def compare_names(self, location='/', blocklist=None):
         '''
-        Takes an iterable of folders to look in for differences.
+        Compares names of the entire system, excluding anything in the (absolute) paths in the
+        blocklist.
+        Blocklist paths may go to folders, in which case they must be formatted /path/folder/*
+        Otherwise, they may go to files, in which case they must be formatted /path/file
         Returns a tuple of filenames only on the container, filenames on both, and filenames only on
         the VM.
         '''
         docker_filenames = set()
         vm_filenames = set()
-        if blocklist:
-            blocklist_string = '\('
-            for folder in blocklist:
-                blocklist_string = blocklist_string + ' -name ' + folder + ' -o'
-            blocklist_string = blocklist_string[:-2] + '\) -prune'
-        else:
-            blocklist_string = ""
-        for folder in allowlist:
-            _, stdout, _ = self.ssh_client.exec_command(f"find {folder} -type f "
-                                                        + blocklist_string)
-            for line in stdout:
-                vm_filenames.add(line.strip())
-            try:
-                container = self.docker_client.containers.run(image=self.image.id,
-                                                              command=f"find {folder} -type f"
-                                                              + blocklist_string,
-                                                              detach=True)
-                container.wait()
-                output = container.logs().decode()
-            finally:
-                container.remove()
-            for line in output.split():
-                docker_filenames.add(line)
-        logging.debug(f"The total number of files in the VM is {len(vm_filenames)}")
-        logging.debug(f"The total number of files in the container is {len(docker_filenames)}")
-        return (docker_filenames - vm_filenames,
-                vm_filenames & docker_filenames,
-                vm_filenames - docker_filenames)
+
+        # Strip trailing slashes from location.
+        location = location.rstrip('/')
+        regex = re.compile(location.replace('/', r'\/') + r"\/*")
+        command = "find . -type f "
+
+        for place in blocklist:
+            if place.startswith(location):
+                trimmed = regex.sub('./', place)
+                command += f"! -path '{trimmed}' "
+        logging.info(f"Running command: {'cd ' + location + ' && ' + command}")
+
+        # Analyze VM.
+        _, vm_out, _ = self.ssh_client.exec_command('cd ' + location + ' && ' + command)
+        for line in vm_out:
+            vm_filenames.add(line.strip().replace('.', location, 1))
+
+        # Analyze container.
+        try:
+            container = self.docker_client.containers.run(image=self.image.id,
+                                                          command="tail -f dev/null",
+                                                          detach=True)
+            _, (byteout, _) = container.exec_run(cmd=command, workdir=location, demux=True)
+
+            if byteout:
+                con_out = byteout.decode().split('\n')[:-1]
+                for line in con_out:
+                    # TODO: selinux seems to break things; ignoring for now.
+                    if ": Permission denied" not in line:
+                        docker_filenames.add(line.replace('.', location, 1))
+
+            logging.debug(f"The total number of files in the VM is {len(vm_filenames)}")
+            logging.debug(f"The total number of files in the container is {len(docker_filenames)}")
+            return (docker_filenames - vm_filenames,
+                    vm_filenames & docker_filenames,
+                    vm_filenames - docker_filenames)
+        finally:
+            container.remove(force=True)
 
     @abstractmethod
     def dockerize(self, folder, verbose=True):

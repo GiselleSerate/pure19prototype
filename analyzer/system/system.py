@@ -382,7 +382,7 @@ class SystemAnalyzer(ABC):
         modified_files = set()
         added_files = set()
         deleted_files = set()
-        unclassified_files = set()
+        ver_mismatch_files = set()
         different_files_not_from_pkgs = set()
         seen = set()
 
@@ -422,14 +422,14 @@ class SystemAnalyzer(ABC):
                         if file in changed_files:
                             added_files.add(file)
                         else:
-                            unclassified_files.add(file)
+                            ver_mismatch_files.add(file)
                     elif file in just_cont:
                         deleted_files.add(file)
                     elif file in shared:
                         if file in changed_files:
                             modified_files.add(file)
                         else:
-                            unclassified_files.add(file)
+                            ver_mismatch_files.add(file)
                     else:
                         #ignore file, it is the same on both vm and container
                         ...
@@ -446,7 +446,7 @@ class SystemAnalyzer(ABC):
                 'added files': list(added_files),\
                 'deleted files': list(deleted_files),\
                 'modified files': list(modified_files),\
-                'unclassified files': list(unclassified_files),\
+                'differences due to package version mismatch': list(ver_mismatch_files),\
                 'files not from packages': list(different_files_not_from_pkgs)\
             }
         return data_dict

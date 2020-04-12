@@ -183,6 +183,7 @@ class SystemAnalyzer(ABC):
             container = self.docker_client.containers.run(image=self.image.id,
                                                           command=type(self).LIST_INSTALLED,
                                                           detach=True)
+            new_container = None
             # Block until the command's done, then check its output.
             container.wait()
             output = container.logs()
@@ -208,29 +209,33 @@ class SystemAnalyzer(ABC):
                     logging.info(f"Now removing version numbers from bad packages...")
                     for pkg_name in missing:
                         self.install_packages[pkg_name] = False
-                        self.unversion_packages[pkg_name] = False
-                    
+                        # self.unversion_packages[pkg_name] = False
+
                     logging.info(f"Verifying packages without version numbers...")
                     self.dockerize(self.tempdir, verbose=False)
                     self.image, _ = self.docker_client.images.build(tag=f'verify{self.op_sys}',
                                                                     path=self.tempdir)
-                    new_container = self.docker_client.containers.run(image=self.image.id,
-                                                                  command=type(self).LIST_INSTALLED,
-                                                                  detach=True)
+                    new_container = self.docker_client.containers.run(f"{self.op_sys}:{self.version}",
+                                                           type(self).LIST_INSTALLED, remove=True)
+                                                                  
                     # i just copy pasted this i hope that is not Bad
-                    new_container.wait()
-                    new_output = new_container.logs()
-                    new_output = new_output.decode()
-                    logging.debug(new_output)
+                    new_output = new_container.decode().split('\n')[:-1]
+                    reversion_packages = type(self).parse_all_pkgs(new_output)
+                    #new_container.wait()
+                    #new_output = new_container.logs()
+                    #new_output = new_output.decode()
+                    #logging.debug(new_output)
 
-                    reversion_packages = parse_all_pkgs(new_output)
+                    #reversion_packages = self.parse_all_pkgs(new_output)
                     reversioned = []
-
-                    for package in missing: 
-                        if package in new_output:
+                    logging.info(f"Installed: {reversion_packages}") 
+                    for package in missing:
+                        logging.info(f"Looking for updated version number for: {package}") 
+                        if package in reversion_packages:
+                            logging.info(f"Found updated version number for: {package}") 
                             new_version_number = reversion_packages[package]
 
-                            self.install_packages[package] = new_version_number
+                            #self.install_packages[package] = new_version_number
                             self.unversion_packages[package] = new_version_number
 
                             reversioned.append(package)

@@ -162,6 +162,10 @@ class CentosAnalyzer(SystemAnalyzer):
             for name, ver in self.install_packages.items():
                 if ver:
                     dockerfile.write(f"{name}-{ver} ")
+            # re-versioned and un-versioned packages
+            for name, ver in self.unversion_packages.items():
+                if ver:
+                    dockerfile.write(f"{name}-{ver} ")
                 else:
                     dockerfile.write(f"{name} ")
             dockerfile.write("\n")

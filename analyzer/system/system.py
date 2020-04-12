@@ -357,11 +357,13 @@ class SystemAnalyzer(ABC):
             logging.debug(f"These files in {folder} were different: {modified_files}")
             self.file_logger.info(f"Same name, but different cksum "
                                   f"({len(modified_files)}):\n{modified_files}")
-            analysis_results[folder] = self.examine_files_and_packages(blocklist, diff_tuple[0], modified_files, diff_tuple[2])
+            analysis_results[folder] = self.examine_files_and_packages(blocklist, diff_tuple[0],
+                                                                       modified_files,
+                                                                       diff_tuple[2])
 
-        f = open("file_difference_analysis.json", "w+")
-        f.write(json.dumps(analysis_results, indent=2))
-        f.close()
+        diff_json = open("file_difference_analysis.json", "w+")
+        diff_json.write(json.dumps(analysis_results, indent=2))
+        diff_json.close()
 
     def examine_files_and_packages(self, blocklist, just_cont, shared, just_vm):
         '''
@@ -370,8 +372,9 @@ class SystemAnalyzer(ABC):
         For each package on the VM, look at its associated files and try to determine which ones
         have been modified after their installation.
         Returns a dictionary with 5 keys: files added to a package after installation, files deleted
-        from packages after installation, files modified after installation, files whose differences may or may not be
-        due to version mismatches, and files that are not associated with any packages.
+        from packages after installation, files modified after installation, files whose differences
+        may or may not be due to version mismatches, and files that are not associated with any
+        packages.
         '''
         logging.info("Analyzing files installed from packages to determine which ones have been "
                      "modified")

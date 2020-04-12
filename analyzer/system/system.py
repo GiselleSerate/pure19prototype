@@ -226,9 +226,10 @@ class SystemAnalyzer(ABC):
                     reversioned = []
                     for package in missing: 
                         if package in newoutput:
+                            newversion = None #how to get the package number ???
                             reversioned.apppend(package)
-                            self.install_packages[package] = 
-                            self.unversion_packages[package] = 
+                            self.install_packages[package] = newversion
+                            self.unversion_packages[package] = newversion
                     logging.info(f"The following packages have been reversioned: {reversioned}")
 
                 elif mode == self.Mode.delete:

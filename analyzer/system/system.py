@@ -202,10 +202,35 @@ class SystemAnalyzer(ABC):
             if there < total:
                 logging.error(f"{there}/{total} packages installed.")
                 logging.error(f"The following packages could not be installed: {missing}")
+
+                # it's reversion mode now 
                 if mode == self.Mode.unversion:
                     logging.info(f"Now removing version numbers from bad packages...")
                     for pkg_name in missing:
-                        self.install_packages[pkg_name] = False # TODO: I know we're going to change this later
+                        self.install_packages[pkg_name] = False
+                        self.unversion_packages[package] = False
+                    
+                    logging.info(f"Verifying packages without version numbers...")
+                    self.dockerize(self.tempdir, verbose=False)
+                    self.image, _ = self.docker_client.images.build(tag=f'verify{self.op_sys}',
+                                                                    path=self.tempdir)
+                    newcontainer = self.docker_client.containers.run(image=self.image.id,
+                                                                  command=type(self).LIST_INSTALLED,
+                                                                  detach=True)
+                    # i just copy pasted this i hope that is not Bad
+                    newcontainer.wait()
+                    newoutput = newcontainer.logs()
+                    newoutput = newoutput.decode()
+                    logging.debug(newoutput)
+
+                    reversioned = []
+                    for package in missing: 
+                        if package in newoutput:
+                            reversioned.apppend(package)
+                            self.install_packages[package] = 
+                            self.unversion_packages[package] = 
+                    logging.info(f"The following packages have been reversioned: {reversioned}")
+
                 elif mode == self.Mode.delete:
                     logging.info(f"Now removing bad packages...")
                     for pkg_name in missing:

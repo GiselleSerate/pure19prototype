@@ -208,28 +208,32 @@ class SystemAnalyzer(ABC):
                     logging.info(f"Now removing version numbers from bad packages...")
                     for pkg_name in missing:
                         self.install_packages[pkg_name] = False
-                        self.unversion_packages[package] = False
+                        self.unversion_packages[pkg_name] = False
                     
                     logging.info(f"Verifying packages without version numbers...")
                     self.dockerize(self.tempdir, verbose=False)
                     self.image, _ = self.docker_client.images.build(tag=f'verify{self.op_sys}',
                                                                     path=self.tempdir)
-                    newcontainer = self.docker_client.containers.run(image=self.image.id,
+                    new_container = self.docker_client.containers.run(image=self.image.id,
                                                                   command=type(self).LIST_INSTALLED,
                                                                   detach=True)
                     # i just copy pasted this i hope that is not Bad
-                    newcontainer.wait()
-                    newoutput = newcontainer.logs()
-                    newoutput = newoutput.decode()
-                    logging.debug(newoutput)
+                    new_container.wait()
+                    new_output = new_container.logs()
+                    new_output = new_output.decode()
+                    logging.debug(new_output)
 
+                    reversion_packages = parse_all_pkgs(new_output)
                     reversioned = []
+
                     for package in missing: 
-                        if package in newoutput:
-                            newversion = None #how to get the package number ???
-                            reversioned.apppend(package)
-                            self.install_packages[package] = newversion
-                            self.unversion_packages[package] = newversion
+                        if package in new_output:
+                            new_version_number = reversion_packages[package]
+
+                            self.install_packages[package] = new_version_number
+                            self.unversion_packages[package] = new_version_number
+
+                            reversioned.append(package)
                     logging.info(f"The following packages have been reversioned: {reversioned}")
 
                 elif mode == self.Mode.delete:

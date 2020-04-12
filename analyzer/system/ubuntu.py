@@ -46,9 +46,9 @@ class UbuntuAnalyzer(SystemAnalyzer):
         for line in iterable:
             if line == '':
                 continue
-            elif re.match(r'WARNING:', line):
+            if re.match(r'WARNING:', line):
                 continue
-            elif re.match(r'Listing', line):
+            if re.match(r'Listing', line):
                 continue
             pkg_name, pkg_ver = UbuntuAnalyzer.parse_pkg_line(line)
             packages[pkg_name] = pkg_ver
@@ -65,34 +65,35 @@ class UbuntuAnalyzer(SystemAnalyzer):
         pkg_strings = group_strings(pkgs, 1000)
 
         for pkg_string in pkg_strings:
-            _, stdout, _ = self.ssh_client.exec_command(f"dpkg-query -L {pkg_string}") 
+            _, stdout, _ = self.ssh_client.exec_command(f"dpkg-query -L {pkg_string}")
             for line in stdout:
                 line = line.strip()
-                if (re.search("is not installed", line)):
+                if re.search("is not installed", line):
                     #do nothing
                     ...
-                elif (re.search("contains no files", line)):
+                elif re.search("contains no files", line):
                     # do nothing
                     ...
                 elif line == '':
                     i += 1
                 else:
-                    files[i].append(line.strip()) 
-            i+=1
+                    files[i].append(line.strip())
+            i += 1
         return files
 
     def files_changed_from_package(self, pkg):
         '''
-        Returns the list of files coming from pkg whose checksums don't match their original checksums.
+        Returns the list of files coming from pkg whose checksums don't match their original
+        checksums.
         '''
         files = []
-        _, stdout, _ = self.ssh_client.exec_command(f"dpkg --verify {pkg}") 
+        _, stdout, _ = self.ssh_client.exec_command(f"dpkg --verify {pkg}")
         for line in stdout:
-            if (re.search("is not installed", line)):
+            if re.search("is not installed", line):
                 return []
-            elif (re.search("contains no files", line)):
+            if re.search("contains no files", line):
                 return []
-            elif '5' in line.split()[0]:
+            if '5' in line.split()[0]:
                 files.append(line.split()[2].strip())
         return files
 

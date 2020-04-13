@@ -169,9 +169,15 @@ class SystemAnalyzer(ABC):
     def verify_packages(self, mode=Mode.dry):
         '''
         Looks through package list to see which packages are uninstallable.
-        mode -- in dry mode, just log bad pkgs. in delete mode, delete bad pkgs from the list.
-                in unversion mode, unspecify version.
-        Returns True if all packages got installed correctly; returns False otherwise.
+        mode -- Specify fallback strategy to take if we can't successfully install all packages.
+                In dry mode, take no fallback action (just log packages). In delete mode, delete bad
+                pkgs from install_packages. In unversion mode, remove the package from
+                install_packages, but add it to unversion_packages with a version that we can
+                install (or False if we can't find it).
+        Returns True if all packages got installed correctly. This includes cases where the fallback
+        strategy successfully handles all packages that failed to install initially. Otherwise,
+        return False. If this function returns False, you may want to try a more "destructive" mode
+        or manual analysis.
         '''
         logging.info(f"Verifying packages in {mode.name} mode...")
         self.dockerize(self.tempdir, verbose=False)
@@ -183,74 +189,93 @@ class SystemAnalyzer(ABC):
             container = self.docker_client.containers.run(image=self.image.id,
                                                           command=type(self).LIST_INSTALLED,
                                                           detach=True)
-            new_container = None
             # Block until the command's done, then check its output.
             container.wait()
             output = container.logs()
-            output = output.decode()
-            logging.debug(output)
-
-            there = 0
-            total = 0
-            missing = []
-            for package in self.install_packages:
-                if package in output:
-                    there += 1
-                else:
-                    missing.append(package)
-                total += 1
-
-            if there < total:
-                logging.error(f"{there}/{total} packages installed.")
-                logging.error(f"The following packages could not be installed: {missing}")
-
-                # it's reversion mode now 
-                if mode == self.Mode.unversion:
-                    logging.info(f"Now removing version numbers from bad packages...")
-                    for pkg_name in missing:
-                        self.install_packages[pkg_name] = False
-                        self.unversion_packages[pkg_name] = False
-
-                    logging.info(f"Verifying packages without version numbers...")
-                    self.dockerize(self.tempdir, verbose=True)
-                    self.image, _ = self.docker_client.images.build(tag=f'verify{self.op_sys}',
-                                                                    path=self.tempdir)
-                    new_container = self.docker_client.containers.run(f"{self.op_sys}:{self.version}",
-                                                           type(self).LIST_INSTALLED, remove=True)
-                                                                  
-                    # i just copy pasted this i hope that is not Bad
-                    #new_output = new_container.decode().split('\n')[:-1]
-                    #reversion_packages = type(self).parse_all_pkgs(new_output)
-                    #new_container.wait()
-                    #new_output = new_container.logs()
-                    new_output = new_container.decode().split('\n')[:-1]
-                    #logging.debug(new_output)
-
-                    reversion_packages = self.parse_all_pkgs(new_output)
-                    reversioned = []
-                    logging.info(f"Installed: {reversion_packages}") 
-                    for package in missing:
-                        logging.info(f"Looking for updated version number for: {package}") 
-                        if package in reversion_packages:
-                            logging.info(f"Found updated version number for: {package}") 
-                            new_version_number = reversion_packages[package]
-
-                            self.install_packages[package] = new_version_number
-                            self.unversion_packages[package] = new_version_number
-
-                            reversioned.append(package)
-                    logging.info(f"The following packages have been reversioned: {reversioned}")
-
-                elif mode == self.Mode.delete:
-                    logging.info(f"Now removing bad packages...")
-                    for pkg_name in missing:
-                        del self.install_packages[pkg_name]
-            else:
-                logging.info(f"All {total} packages installed properly.")
-
-            return there == total
         finally:
+            # Clean up after yourself.
             container.remove(force=True)
+
+        # Evaluate packages on the system.
+        output = output.decode()
+        logging.debug(output)
+        there = 0
+        total = 0
+        missing = []
+        for package in self.install_packages:
+            if package in output:
+                there += 1
+            else:
+                missing.append(package)
+            total += 1
+
+        # Handle missing code with fallback strat.
+        if missing:
+            logging.warning(f"{there}/{total} packages installed.")
+            logging.warning(f"The following packages could not be installed: {missing}")
+            # Fallback code will return whether it could handle missing packages; return this up.
+            return self._run_fallback(missing, mode)
+
+        # Success!
+        logging.info(f"All {total} packages installed properly.")
+        return True
+
+
+    def _run_fallback(self, missing, mode=Mode.dry):
+        '''
+        Runs fallback methods for verify based on fallback mode.
+        missing -- Iterable of packages to perform fallback for.
+        mode -- In dry mode, take no fallback action (just log packages). In delete mode, delete bad
+                pkgs from install_packages. In unversion mode, remove the package from
+                install_packages, but add it to unversion_packages with a version that we can
+                install (or False if we can't find it).
+        Returns True if the fallback method was sufficient; False otherwise. (Dry mode, thus, is
+        always false, since it never does anything.)
+        '''
+        logging.info(f"Now running verification fallback in {mode.name} mode...")
+
+        if mode == self.Mode.dry:
+            logging.info("Dry mode does not take any fallback actions for missing packages.")
+            return False
+
+        if mode == self.Mode.delete:
+            logging.info(f"Now removing bad packages...")
+            for pkg_name in missing:
+                del self.install_packages[pkg_name]
+
+        if mode == self.Mode.unversion:
+            logging.info(f"Now removing version numbers from bad packages...")
+            for pkg_name in missing:
+                del self.install_packages[pkg_name]
+                self.unversion_packages[pkg_name] = False
+
+        logging.info(f"Verifying packages after employing fallback...")
+        self.dockerize(self.tempdir, verbose=False)
+        self.image, _ = self.docker_client.images.build(tag=f'verify{self.op_sys}',
+                                                        path=self.tempdir)
+        con = self.docker_client.containers.run(image=self.image.id,
+                                                command=type(self).LIST_INSTALLED,
+                                                remove=True)
+        output = con.decode().split('\n')[:-1]
+        pkgs_after_fallback = self.parse_all_pkgs(output)
+        logging.debug(f"Installed: {pkgs_after_fallback}")
+
+        recovered = set()
+        still_gone = set()
+        for package in missing:
+            if package in pkgs_after_fallback:
+                # In unversion mode, save the version number we found
+                if mode == self.Mode.unversion:
+                    self.unversion_packages[package] = pkgs_after_fallback[package]
+                recovered.add(package)
+            else:
+                still_gone.add(package)
+        logging.info(f"Recovered these packages via fallback strategy ({len(recovered)}): "
+                     f"{recovered}")
+        logging.info(f"Still missing ({len(still_gone)}): {still_gone}")
+
+        # Return True if we recovered everything
+        return len(still_gone) == 0
 
 
     def get_hash_from_container(self, filepath, is_directory=False):

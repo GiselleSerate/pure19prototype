@@ -158,16 +158,28 @@ class CentosAnalyzer(SystemAnalyzer):
         with open(os.path.join(folder, 'Dockerfile'), 'w') as dockerfile:
             dockerfile.write(f"FROM {self.op_sys}:{self.version}\n")
 
-            dockerfile.write(f"RUN yum -y install ")
-            for name, ver in self.install_packages.items():
-                if ver:
-                    dockerfile.write(f"{name}-{ver} ")
-            # re-versioned and un-versioned packages
-            for name, ver in self.unversion_packages.items():
-                if ver:
-                    dockerfile.write(f"{name}-{ver} ")
-                else:
-                    dockerfile.write(f"{name} ")
-            dockerfile.write("\n")
+            # Normal installs
+            if self.install_packages:
+                dockerfile.write(f"RUN yum -y install ")
+                for name, ver in self.install_packages.items():
+                    if ver:
+                        dockerfile.write(f"{name}-{ver} ")
+                dockerfile.write("\n")
+
+            # Unversioned packages: original ver in comment, installed ver in yum line
+            if self.unversion_packages:
+                comment = "# Original versions: "
+                install_line = "RUN yum -y install "
+                for name, new_ver in self.unversion_packages.items():
+                    old_ver = self.all_packages[name]
+                    if new_ver:
+                        comment += f"{name}: {old_ver}->{new_ver} "
+                        install_line += f"{name}-{new_ver} "
+                    else:
+                        comment += f"{name}: {old_ver}->? "
+                        install_line += f"{name} "
+                dockerfile.write(comment + '\n')
+                dockerfile.write(install_line + '\n')
+
         if verbose:
             logging.info(f"Your Dockerfile is in {folder}")

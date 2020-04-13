@@ -10,6 +10,7 @@ import re
 import requests.exceptions
 
 from .system import SystemAnalyzer
+from ..utils import group_strings
 
 
 
@@ -43,11 +44,58 @@ class UbuntuAnalyzer(SystemAnalyzer):
         '''
         packages = {}
         for line in iterable:
+            if line == '':
+                continue
+            if re.match(r'WARNING:', line):
+                continue
             if re.match(r'Listing', line):
                 continue
             pkg_name, pkg_ver = UbuntuAnalyzer.parse_pkg_line(line)
             packages[pkg_name] = pkg_ver
         return packages
+
+    def list_files_in_packages(self, pkgs):
+        '''
+        Takes an iterable of packages.
+        Gets the list of files installed as part of each package.
+        Returns a list of lists of filenames.
+        '''
+        files = [[]] * len(pkgs)
+        i = 0
+        pkg_strings = group_strings(pkgs, 1000)
+
+        for pkg_string in pkg_strings:
+            _, stdout, _ = self.ssh_client.exec_command(f"dpkg-query -L {pkg_string}")
+            for line in stdout:
+                line = line.strip()
+                if re.search("is not installed", line):
+                    #do nothing
+                    ...
+                elif re.search("contains no files", line):
+                    # do nothing
+                    ...
+                elif line == '':
+                    i += 1
+                else:
+                    files[i].append(line.strip())
+            i += 1
+        return files
+
+    def files_changed_from_package(self, pkg):
+        '''
+        Returns the list of files coming from pkg whose checksums don't match their original
+        checksums.
+        '''
+        files = []
+        _, stdout, _ = self.ssh_client.exec_command(f"dpkg --verify {pkg}")
+        for line in stdout:
+            if re.search("is not installed", line):
+                return []
+            if re.search("contains no files", line):
+                return []
+            if '5' in line.split()[0]:
+                files.append(line.split()[2].strip())
+        return files
 
 
     def get_packages(self):

@@ -20,5 +20,5 @@ with GeneralAnalyzer(host=HOST) as kowalski:
     kowalski.analyzer.dockerize(tempfile.mkdtemp())
     kowalski.analyzer.analyze_files(allowlist=['/bin/', '/etc/', '/lib/', '/opt/', '/sbin/',
                                                '/usr/', '/var/'],
-                                    blocklist=['/var/tmp/*', '/etc/selinux/*', '/etc/tuned/*'])
+                                    blocklist=['/var/tmp/*', '/var/log/*'])
     kowalski.analyzer.get_config_differences()

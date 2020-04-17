@@ -61,9 +61,10 @@ class UbuntuAnalyzer(SystemAnalyzer):
         Returns a list of lists of filenames.
         '''
         files = [[]] * len(pkgs)
-        i = 0
-        pkg_strings = group_strings(pkgs, 1000)
+        i = -1
+        pkg_strings = group_strings(pkgs)
 
+        temp = []
         for pkg_string in pkg_strings:
             _, stdout, _ = self.ssh_client.exec_command(f"dpkg-query -L {pkg_string}")
             for line in stdout:
@@ -75,10 +76,25 @@ class UbuntuAnalyzer(SystemAnalyzer):
                     # do nothing
                     ...
                 elif line == '':
+                    #do nothing
+                    ...
+                elif line == '/.':
+                    files[i] = temp
+                    temp = []
                     i += 1
                 else:
-                    files[i].append(line.strip())
-            i += 1
+                    temp.append(line)
+        files[i] = temp
+
+        # remove directories from 'files'
+        for file_list in files:
+            for file in file_list:
+                split = file.split('/')
+                if len(split) >= 3:
+                    try:
+                        file_list.remove('/'.join(split[:-1]))
+                    except ValueError:
+                        pass
         return files
 
     def files_changed_from_package(self, pkg):

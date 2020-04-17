@@ -60,7 +60,7 @@ class CentosAnalyzer(SystemAnalyzer):
         '''
         files = [[]] * len(pkgs)
         i = 0
-        pkg_strings = group_strings(pkgs, 500)
+        pkg_strings = group_strings(pkgs)
         cmd_strings = []
         for pkg_string in pkg_strings:
             cmd_string = ""
@@ -68,6 +68,7 @@ class CentosAnalyzer(SystemAnalyzer):
                 cmd_string += f" && echo \"\" && rpm -ql {pkg}"
             cmd_strings.append(cmd_string[15:])
 
+        temp = []
         for cmd in cmd_strings:
             _, stdout, _ = self.ssh_client.exec_command(cmd)
             for line in stdout:
@@ -79,10 +80,15 @@ class CentosAnalyzer(SystemAnalyzer):
                     # do nothing
                     ...
                 elif line == '':
+                    files[i] = temp
+                    temp = []
                     i += 1
                 else:
-                    files[i].append(line.strip())
+                    temp.append(line)
+            files[i] = temp
+            temp = []
             i += 1
+
         return files
 
     def files_changed_from_package(self, pkg):

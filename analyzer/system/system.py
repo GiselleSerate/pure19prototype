@@ -529,10 +529,11 @@ class SystemAnalyzer(ABC):
         regex = re.compile(location.replace('/', r'\/') + r"\/*")
         command = "find . -type f "
 
-        for place in blocklist:
-            if place.startswith(location):
-                trimmed = regex.sub('./', place)
-                command += f"! -path '{trimmed}' "
+        if blocklist:
+            for place in blocklist:
+                if place.startswith(location):
+                    trimmed = regex.sub('./', place)
+                    command += f"! -path '{trimmed}' "
         logging.debug(f"Running command: {'cd ' + location + ' && ' + command}")
 
         # Analyze VM.

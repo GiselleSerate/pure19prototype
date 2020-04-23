@@ -532,7 +532,7 @@ class SystemAnalyzer(ABC):
         if location == '/':
             if blocklist:
                 for place in blocklist:
-                    command += f"! -path '{place}' "
+                    command += f"! -path '.{place}' "
         else:
             location = location.rstrip('/')
             regex = re.compile(location.replace('/', r'\/') + r"\/*")
@@ -542,7 +542,7 @@ class SystemAnalyzer(ABC):
                     if place.startswith(location):
                         trimmed = regex.sub('./', place)
                         command += f"! -path '{trimmed}' "
-        logging.debug(f"Running command: {'cd ' + location + ' && ' + command}")
+        logging.info(f"Running command: {'cd ' + location + ' && ' + command}")
 
         # Analyze VM.
         _, vm_out, _ = self.ssh_client.exec_command('cd ' + location + ' && ' + command)

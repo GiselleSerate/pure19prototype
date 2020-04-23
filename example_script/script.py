@@ -18,7 +18,7 @@ with GeneralAnalyzer(host=HOST) as kowalski:
         if kowalski.analyzer.verify_packages(mode=md):
             break
     kowalski.analyzer.dockerize(tempfile.mkdtemp())
-    kowalski.analyzer.analyze_files(allowlist=['/bin/', '/etc/', '/lib/', '/opt/', '/sbin/',
-                                               '/usr/', '/var/'],
-                                    blocklist=['/var/tmp/*', '/var/log/*'])
+    kowalski.analyzer.analyze_files(allowlist=['/'],
+                                    blocklist=['/var/tmp/*', '/var/log/*', '/tmp/*', '/proc/*',
+                                               '/sys/*'])
     kowalski.analyzer.get_config_differences()

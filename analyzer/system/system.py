@@ -315,6 +315,9 @@ class SystemAnalyzer(ABC):
                     # Couldn't find the file. This is expected to happen sometimes; just keep going.
                     logging.warning(f"From container: {line}")
                     continue
+                if 'Permission denied' in line: #or 'Input/output error' in line or 'Function not implemented' in line or 'Invalid argument' in line:
+                    logging.debug(f"From container: {line}")
+                    continue
                 try:
                     crc, size, file = line.split()
                     self.container_hashes[file] = {'hash': crc, 'size': size}
@@ -525,23 +528,31 @@ class SystemAnalyzer(ABC):
         vm_filenames = set()
 
         # Strip trailing slashes from location.
-        location = location.rstrip('/')
-        regex = re.compile(location.replace('/', r'\/') + r"\/*")
         command = "find . -type f "
+        if location == '/':
+            if blocklist:
+                for place in blocklist:
+                    command += f"! -path '{place}' "
+        else:
+            location = location.rstrip('/')
+            regex = re.compile(location.replace('/', r'\/') + r"\/*")
 
-        if blocklist:
-            for place in blocklist:
-                if place.startswith(location):
-                    trimmed = regex.sub('./', place)
-                    command += f"! -path '{trimmed}' "
+            if blocklist:
+                for place in blocklist:
+                    if place.startswith(location):
+                        trimmed = regex.sub('./', place)
+                        command += f"! -path '{trimmed}' "
         logging.debug(f"Running command: {'cd ' + location + ' && ' + command}")
 
         # Analyze VM.
         _, vm_out, _ = self.ssh_client.exec_command('cd ' + location + ' && ' + command)
-        for line in vm_out:
-            vm_filenames.add(line.strip().replace('.', location, 1))
+        if location == '/':
+            for line in vm_out:
+                vm_filenames.add(line.strip()[1:])
+        else:
+            for line in vm_out:
+                vm_filenames.add(line.strip().replace('.', location, 1))
 
-        # Analyze container.
         try:
             container = self.docker_client.containers.run(image=self.image.id,
                                                           command="tail -f dev/null",
@@ -550,11 +561,15 @@ class SystemAnalyzer(ABC):
 
             if byteout:
                 con_out = byteout.decode().split('\n')[:-1]
-                for line in con_out:
-                    # TODO: selinux seems to break things; ignoring for now.
-                    if ": Permission denied" not in line:
-                        docker_filenames.add(line.replace('.', location, 1))
-
+                if location == '/':
+                    for line in con_out:
+                        if ": Permission denied" not in line:
+                            docker_filenames.add(line[1:])
+                else:
+                    for line in con_out:
+                        # TODO: selinux seems to break things; ignoring for now.
+                        if ": Permission denied" not in line:
+                            docker_filenames.add(line.replace('.', location, 1))
             logging.debug(f"The total number of files in the VM is {len(vm_filenames)}")
             logging.debug(f"The total number of files in the container is {len(docker_filenames)}")
             return (docker_filenames - vm_filenames,

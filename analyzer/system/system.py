@@ -542,7 +542,7 @@ class SystemAnalyzer(ABC):
                     if place.startswith(location):
                         trimmed = regex.sub('./', place)
                         command += f"! -path '{trimmed}' "
-        logging.info(f"Running command: {'cd ' + location + ' && ' + command}")
+        logging.debug(f"Running command: {'cd ' + location + ' && ' + command}")
 
         # Analyze VM.
         _, vm_out, _ = self.ssh_client.exec_command('cd ' + location + ' && ' + command)

@@ -129,18 +129,12 @@ class UbuntuAnalyzer(SystemAnalyzer):
 
     def get_dependencies(self, package):
         '''
-        TODO: this function is never called, and it's for rpm besides
-        NEVER CALLED :/
-        Gets the dependencies of a particular package on the target system. (Currently uses rpm.)
+        Gets the dependencies of a particular package on the target system using apt-cache.
         package -- the package to get deps for
         '''
         super().get_dependencies(package)
-        # Issue--/bin/sh doesn't look like a package to me. what do we do about that?
-        _, stdout, _ = self.ssh_client.exec_command(f"rpm -qR {package}")
-        # I have no idea which regex is correct--one takes me from 420 to 256 and the other goes to
-        # 311
-        # deps = [re.split('\W+', line.strip())[0] for line in stdout]
-        deps = {line.strip() for line in stdout}
+        _, stdout, _ = self.ssh_client.exec_command(f"apt-cache depends {package}")
+        deps = {line.split("Depends:")[1].strip() for line in stdout if "Depends:" in line}
         logging.debug(f"{package} > {deps}")
         return deps
 

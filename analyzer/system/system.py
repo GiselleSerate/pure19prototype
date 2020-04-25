@@ -454,11 +454,15 @@ class SystemAnalyzer(ABC):
             self.get_file_pkg_assocs()
             logging.info("...done!")
 
-        container = self.docker_client.containers.run(image=self.image.id,
-                                                      command=type(self).LIST_INSTALLED,
-                                                      detach=True)
-        container.wait()
-        output = container.logs().decode()
+        try:
+            container = self.docker_client.containers.run(image=self.image.id,
+                                                          command=type(self).LIST_INSTALLED,
+                                                          detach=True)
+            container.wait()
+            output = container.logs().decode()
+        finally:
+            container.remove(force=True)
+
         # Last element is a blank line; remove it.
         pkg_list = output.split('\n')[:-1]
         cont_pkgs = type(self).parse_all_pkgs(pkg_list)

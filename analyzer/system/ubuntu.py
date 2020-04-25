@@ -238,7 +238,7 @@ class UbuntuAnalyzer(SystemAnalyzer):
 
             dockerfile.write(f"ENV DEBIAN_FRONTEND=noninteractive\n")
 
-            dockerfile.write(f"RUN apt-get update && apt-get install -y --allow-downgrades")
+            dockerfile.write(f"RUN apt-get update && apt-get install -y --allow-downgrades ")
             dockerfile.write(self.assemble_packages())
             dockerfile.write("\n")
         if verbose:

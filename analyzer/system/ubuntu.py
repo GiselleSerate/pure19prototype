@@ -200,7 +200,6 @@ class UbuntuAnalyzer(SystemAnalyzer):
 
             if not re.search("E: ", container.logs().decode()):
                 logging.info("All packages installed properly.")
-                container.remove(force=True)
                 return True
 
             if not missing_pkgs and not missing_vers:

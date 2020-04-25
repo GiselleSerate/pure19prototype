@@ -262,11 +262,10 @@ class SystemAnalyzer(ABC):
 
         recovered = set()
         still_gone = set()
-        for package in missing:
+        for package in self.unversion_packages:
             if package in pkgs_after_fallback:
                 # In unversion mode, save the version number we found
-                if mode == self.Mode.unversion:
-                    self.unversion_packages[package] = pkgs_after_fallback[package]
+                self.unversion_packages[package] = pkgs_after_fallback[package]
                 recovered.add(package)
             else:
                 still_gone.add(package)

@@ -7,6 +7,7 @@ import logging
 import os
 import re
 
+import docker
 import requests.exceptions
 
 from .system import SystemAnalyzer
@@ -151,18 +152,30 @@ class UbuntuAnalyzer(SystemAnalyzer):
         return configs
 
 
-    def assemble_packages(self):
+    def _assemble_packages(self):
         '''
-        Assembles all packages and versions (if applicable) into a string for installer, and returns
-        the string.
+        Assembles all packages and versions (if applicable) into strings for the installer, and
+        returns the strings in a tuple of an install line for packages with matched versions, a
+        comment of unversioned packages, and an install line of packages with substitute
+        versions.
         '''
-        install_all = ""
+        specific_line = ""
+        unversion_comment = ""
+        unversion_line = ""
+
         for name, ver in self.install_packages.items():
-            if ver:
-                install_all += f"{name}={ver} "
+            specific_line += f"{name}={ver} "
+
+        for name, new_ver in self.unversion_packages.items():
+            old_ver = self.all_packages[name]
+            if new_ver:
+                unversion_comment += f"{name}: {old_ver}->{new_ver} "
+                unversion_line += f"{name}={new_ver} "
             else:
-                install_all += f"{name} "
-        return install_all
+                unversion_comment += f"{name}: {old_ver}->? "
+                unversion_line += f"{name} "
+
+        return specific_line, unversion_comment, unversion_line
 
 
     def verify_packages(self, mode=SystemAnalyzer.Mode.dry):
@@ -184,44 +197,148 @@ class UbuntuAnalyzer(SystemAnalyzer):
                                                         path=self.tempdir)
 
         # Try installing all of the packages.
-        install_all = "apt-get -y install "
-        install_all += self.assemble_packages()
+        install_all = "apt-get install -y --allow-downgrades "
+        pkg_line, _, unv_line = self._assemble_packages()
+        install_all += pkg_line + unv_line
 
+        # Spin up the container and try to install everything.
         try:
-            # Spin up the container and let it do its thing.
             container = self.docker_client.containers.run(self.image.id, command=install_all,
                                                           detach=True)
             container.wait()
-
-            # Parse the container's output.
-            missing_pkgs = re.findall("E: Unable to locate package (.*)\n",
-                                      container.logs().decode())
-            missing_vers = re.findall("' for '(.*)' was not found\n", container.logs().decode())
-
-            if not re.search("E: ", container.logs().decode()):
-                logging.info("All packages installed properly.")
-                return True
-
-            if not missing_pkgs and not missing_vers:
-                logging.error("No missing packages or versions found, but there was an error:\n"
-                              f"{container.logs().decode()}")
-                # Intentionally not removing the container for debugging purposes.
-                return False
-
-            # Report on missing packages.
-            logging.warning(f"Could not find the following packages: {missing_pkgs}")
-            logging.warning(f"Could not find versions for the following packages: {missing_vers}")
-            if mode == self.Mode.unversion:
-                logging.info(f"Now removing version numbers from bad packages...")
-                for pkg_name in missing_vers:
-                    self.install_packages[pkg_name] = False
-            elif mode == self.Mode.delete:
-                logging.info(f"Now removing bad packages...")
-                for pkg_name in itertools.chain(missing_pkgs, missing_vers):
-                    del self.install_packages[pkg_name]
-            return False
+            output = container.logs().decode()
         finally:
             container.remove(force=True)
+
+        # Parse the container's output.
+        missing_pkgs = re.findall("E: Unable to locate package (.*)\n", output)
+        missing_vers = re.findall("' for '(.*)' was not found\n", output)
+
+        if not re.search("E: ", output):
+            logging.info("All packages installed properly.")
+            return True
+
+        if not missing_pkgs and not missing_vers:
+            logging.error(f"No missing packages or versions found, but there was an error:\n"
+                          f"{output}")
+            return False
+
+        # Report on missing packages.
+        logging.warning(f"Could not find the following packages: {missing_pkgs}")
+        logging.warning(f"Could not find versions for the following packages: {missing_vers}")
+
+        # Fallback code will return whether it could handle missing packages; return this up.
+        return self._run_fallback(missing_pkgs + missing_vers, mode)
+
+
+    def _run_fallback(self, missing, mode=SystemAnalyzer.Mode.dry):
+        '''
+        Runs fallback methods for verify based on fallback mode.
+        missing -- Iterable of packages to perform fallback for.
+        mode -- In dry mode, take no fallback action (just log packages). In delete mode, delete bad
+                pkgs from install_packages. In unversion mode, remove the package from
+                install_packages, but add it to unversion_packages with a version that we can
+                install (or False if we can't find it). Note that for Ubuntu in specific, we can
+                only get the new versions if unversion fixes all packages.
+        Returns True if the fallback method was sufficient; False otherwise. (Dry mode, thus, is
+        always false, since it never does anything.)
+        '''
+        ret = False
+        logging.info(f"Now running verification fallback in {mode.name} mode...")
+
+        if mode == self.Mode.dry:
+            logging.info("Dry mode does not take any fallback actions for missing packages.")
+            return False
+
+        if mode == self.Mode.delete:
+            logging.info(f"Now removing bad packages...")
+            for pkg_name in missing:
+                del self.install_packages[pkg_name]
+                try:
+                    del self.unversion_packages[pkg_name]
+                except KeyError:
+                    pass
+
+        if mode == self.Mode.unversion:
+            logging.info(f"Now removing version numbers from packages we couldn't find versions "
+                         "for...")
+            for pkg_name in missing:
+                del self.install_packages[pkg_name]
+                self.unversion_packages[pkg_name] = False
+
+        logging.info(f"Verifying packages after employing fallback...")
+
+        # Write prelude, create image.
+        with open(os.path.join(self.tempdir, 'Dockerfile'), 'w') as dockerfile:
+            dockerfile.write(f"FROM {self.op_sys}:{self.version}\n")
+            dockerfile.write(f"ENV DEBIAN_FRONTEND=noninteractive\n")
+            dockerfile.write(f"RUN apt-get update\n")
+            # I know this is supposed to go on the same line as the installs normally, but
+        self.image, _ = self.docker_client.images.build(tag=f'verify{self.op_sys}',
+                                                        path=self.tempdir)
+
+        # Try installing all of the packages.
+        install_all = "apt-get install -y --allow-downgrades "
+        pkg_line, _, unv_line = self._assemble_packages()
+        install_all += pkg_line + unv_line
+
+        # Spin up the container and try to install everything.
+        try:
+            container = self.docker_client.containers.run(self.image.id, command=install_all,
+                                                          detach=True)
+            container.wait()
+            output = container.logs().decode()
+        finally:
+            container.remove(force=True)
+        logging.debug(output)
+
+        # Parse the container's output.
+        missing_pkgs = re.findall("E: Unable to locate package (.*)\n", output)
+        missing_vers = re.findall("' for '(.*)' was not found\n", output)
+
+        if not re.search("E: ", output):
+            logging.info("All packages installed properly after fallback.")
+            ret = True
+
+        if not missing_pkgs and not missing_vers:
+            logging.error(f"No missing packages or versions found, but there was an error during "
+                          f"fallback:\n{output}")
+            return False
+
+        # Report on missing packages.
+        logging.warning(f"Could not find the following packages during fallback: {missing_pkgs}")
+        logging.warning(f"Could not find versions for the following packages during fallback: "
+                        f"{missing_vers}")
+
+        # In case of errors, we can't check for versions anyway because the image won't build.
+        # Return straightaway.
+        if not ret:
+            return ret
+
+        # Now figure out what the versions for everything in unversion are.
+        self.dockerize(self.tempdir, verbose=False)
+        container = self.docker_client.containers.run(self.image.id,
+                                                      command=self.LIST_INSTALLED,
+                                                      remove=True)
+        output = container.decode().split('\n')[:-1]
+        pkgs_after_fallback = self.parse_all_pkgs(output)
+        logging.info(f"Installed: {pkgs_after_fallback}")
+
+        recovered = set()
+        still_gone = set()
+        for package in self.unversion_packages:
+            if package in pkgs_after_fallback:
+                # Save the version number we found
+                self.unversion_packages[package] = pkgs_after_fallback[package]
+                recovered.add(package)
+            else:
+                still_gone.add(package)
+        logging.info(f"Recovered these packages via fallback strategy ({len(recovered)}): "
+                     f"{recovered}")
+        logging.info(f"Still missing ({len(still_gone)}): {still_gone}")
+
+        # Return True if we recovered everything
+        return len(still_gone) == 0
 
 
     def dockerize(self, folder, verbose=True):
@@ -238,8 +355,13 @@ class UbuntuAnalyzer(SystemAnalyzer):
 
             dockerfile.write(f"ENV DEBIAN_FRONTEND=noninteractive\n")
 
-            dockerfile.write(f"RUN apt-get update && apt-get install -y --allow-downgrades ")
-            dockerfile.write(self.assemble_packages())
-            dockerfile.write("\n")
+            specific, comment, unversion = self._assemble_packages()
+            dockerfile.write(f"RUN apt-get update && apt-get install -y --allow-downgrades "
+                             f"{specific}\n")
+
+            if unversion != "":
+                dockerfile.write(f"# Original versions: {comment}\n")
+                dockerfile.write(f"RUN apt-get update && apt-get install -y --allow-downgrades "
+                                 f"{unversion}\n")
         if verbose:
             logging.info(f"Your Dockerfile is in {folder}")

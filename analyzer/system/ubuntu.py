@@ -197,7 +197,7 @@ class UbuntuAnalyzer(SystemAnalyzer):
                                                         path=self.tempdir)
 
         # Try installing all of the packages.
-        install_all = "apt-get -y install "
+        install_all = "apt-get install -y --allow-downgrades "
         pkg_line, _, unv_line = self._assemble_packages()
         install_all += pkg_line + unv_line
 
@@ -278,7 +278,7 @@ class UbuntuAnalyzer(SystemAnalyzer):
                                                         path=self.tempdir)
 
         # Try installing all of the packages.
-        install_all = "apt-get -y install "
+        install_all = "apt-get install -y --allow-downgrades "
         pkg_line, _, unv_line = self._assemble_packages()
         install_all += pkg_line + unv_line
 
@@ -356,10 +356,12 @@ class UbuntuAnalyzer(SystemAnalyzer):
             dockerfile.write(f"ENV DEBIAN_FRONTEND=noninteractive\n")
 
             specific, comment, unversion = self._assemble_packages()
-            dockerfile.write(f"RUN apt-get update && apt-get install -y {specific}\n")
+            dockerfile.write(f"RUN apt-get update && apt-get install -y --allow-downgrades "
+                             f"{specific}\n")
 
             if unversion != "":
                 dockerfile.write(f"# Original versions: {comment}\n")
-                dockerfile.write(f"RUN apt-get update && apt-get install -y {unversion}\n")
+                dockerfile.write(f"RUN apt-get update && apt-get install -y --allow-downgrades "
+                                 f"{unversion}\n")
         if verbose:
             logging.info(f"Your Dockerfile is in {folder}")

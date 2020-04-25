@@ -24,25 +24,23 @@ HOST = Host(hostname=HOSTNAME, port=PORT, username=USERNAME)
 
 
 
-# # TODO: Something's weird with Ubuntu right now. I think libsqlite-0 was a default package that now
-# # cannot be installed for some reason. This is bizarre.
-# def test_basic_ubuntu_container():
-#     '''
-#     Test that basic sshable ubuntu container can be put through the prototype
-#     '''
-#     expected = ['openssh-server']
-#     container_tester(name='basic_ubuntu', op_sys='ubuntu', host=HOST, expected=expected,
-#                      install_str='apt-get install -y')
+def test_basic_ubuntu_container():
+    '''
+    Test that basic sshable ubuntu container can be put through the prototype
+    '''
+    expected = ['openssh-server']
+    container_tester(name='basic_ubuntu', op_sys='ubuntu', host=HOST, expected=expected,
+                     install_str='apt-get install -y')
 
 
-# def test_assorted_ubuntu_container():
-#     '''
-#     Test that ubuntu container with a selection of assorted packages can be put through the
-#     prototype
-#     '''
-#     expected = ['openssh-server', 'rolldice', 'ghc', 'git']
-#     container_tester(name='assorted_ubuntu', op_sys='ubuntu', host=HOST, expected=expected,
-#                      install_str='apt-get install -y')
+def test_assorted_ubuntu_container():
+    '''
+    Test that ubuntu container with a selection of assorted packages can be put through the
+    prototype
+    '''
+    expected = ['openssh-server', 'rolldice', 'ghc', 'git']
+    container_tester(name='assorted_ubuntu', op_sys='ubuntu', host=HOST, expected=expected,
+                     install_str='apt-get install -y')
 
 
 def test_basic_centos_container():

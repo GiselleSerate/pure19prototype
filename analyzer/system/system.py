@@ -13,7 +13,7 @@ from enum import Enum
 import requests.exceptions
 
 from ..utils import analyze_dependencies, DockerDaemonError, group_strings
-
+from demo_utils import demo_pause
 
 
 class SystemAnalyzer(ABC):
@@ -100,6 +100,7 @@ class SystemAnalyzer(ABC):
         '''
         Gets all packages and versions from the target system and puts them in self.packages.
         '''
+        demo_pause("Get all packages on the target system")
         logging.info("Getting packages...")
 
 
@@ -130,6 +131,7 @@ class SystemAnalyzer(ABC):
         strict_versioning -- if True, we'll only remove the package if the versions match the base
             image, and we will NOT do dependency analysis.
         '''
+        demo_pause("Remove default-installed packages from the list to be installed")
         logging.info("Filtering packages...")
         assert self.all_packages, "No packages yet. Have you run get_packages?"
 
@@ -166,7 +168,7 @@ class SystemAnalyzer(ABC):
                      f"{len(self.install_packages)}.")
 
 
-    def verify_packages(self, mode=Mode.dry):
+    def verify_packages(self, mode=Mode.unversion):
         '''
         Looks through package list to see which packages are uninstallable.
         mode -- Specify fallback strategy to take if we can't successfully install all packages.
@@ -179,6 +181,7 @@ class SystemAnalyzer(ABC):
         return False. If this function returns False, you may want to try a more "destructive" mode
         or manual analysis.
         '''
+        demo_pause(f"Verify packages in {mode.name} mode")
         logging.info(f"Verifying packages in {mode.name} mode...")
         self.dockerize(self.tempdir, verbose=False)
         # Now that we have a Dockerfile, build and check the packages are there
@@ -388,6 +391,7 @@ class SystemAnalyzer(ABC):
         Otherwise, they may go to files, in which case they must be formatted /path/file
         Currently we just dump everything to logs; eventually we may want to return some of this.
         '''
+        demo_pause(f"Look at {allowlist} and subdirs to find differences")
         if not allowlist:
             allowlist = {'/'}
         logging.info(f"Diffing subdirectories of {allowlist}")
@@ -590,6 +594,7 @@ class SystemAnalyzer(ABC):
         container), and on the container (possibly also the VMs).
         Returns True if it succeeded, False otherwise.
         '''
+        demo_pause("Check all config files for differences")
         assert self.all_packages, "No packages yet. Have you run get_packages?"
         logging.info("Getting config differences...")
 
@@ -664,4 +669,5 @@ class SystemAnalyzer(ABC):
         '''
         assert self.install_packages, "No packages yet. Have you run get_packages?"
         if verbose:
+            demo_pause("Create Dockerfile")
             logging.info("Creating Dockerfile...")

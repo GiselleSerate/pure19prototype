@@ -16,7 +16,7 @@ from . import HOST
 from .utils import OpSysError, OrigSysConnError, PermissionsError
 from .system.centos import CentosAnalyzer
 from .system.ubuntu import UbuntuAnalyzer
-
+from demo_utils import demo_pause
 
 
 class GeneralAnalyzer:
@@ -36,6 +36,7 @@ class GeneralAnalyzer:
 
 
     def __enter__(self):
+        demo_pause("Create and connect to VM over SSH and Docker client")
         # Explore ~/.ssh/ for keys
         self.ssh_client.load_system_host_keys()
         # Establish SSH connection
@@ -72,6 +73,7 @@ class GeneralAnalyzer:
         '''
         Gets the operating system and version of the target system.
         '''
+        demo_pause("Detect OS and create a sub-analyzer of that type")
         logging.info("Getting operating system and version...")
         _, stdout, _ = self.ssh_client.exec_command('cat /etc/os-release')
 

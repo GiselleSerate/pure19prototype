@@ -14,11 +14,8 @@ logging.info('Beginning analysis...')
 # Host(hostname=HOSTNAME, port=PORT, username=USERNAME)
 with GeneralAnalyzer(host=HOST) as kowalski:
     kowalski.analyzer.get_packages()
-    kowalski.analyzer.filter_packages()
-    for md in (SystemAnalyzer.Mode.unversion,
-               SystemAnalyzer.Mode.delete):
-        if kowalski.analyzer.verify_packages(mode=md):
-            break
+    kowalski.analyzer.filter_packages(strict_versioning=False)
+    kowalski.analyzer.verify_packages(mode=SystemAnalyzer.Mode.unversion)
     kowalski.analyzer.dockerize(tempfile.mkdtemp())
     kowalski.analyzer.analyze_files(allowlist=['/'],
                                     blocklist=['/var/tmp/*', '/var/log/*', '/tmp/*', '/proc/*',

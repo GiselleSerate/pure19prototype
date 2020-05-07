@@ -28,7 +28,7 @@ class UbuntuAnalyzer(SystemAnalyzer):
         Parses apt-style package lines.
         Returns a tuple of package name, package version.
         '''
-        #assumes line comes in as something like
+        # Assumes line comes in as something like
         # 'accountsservice/bionic,now 0.6.45-1ubuntu1 amd64 [installed,automatic]'
         clean_line = line.strip() # Trim whitespace
         name = clean_line.split('/')[0]
@@ -71,13 +71,13 @@ class UbuntuAnalyzer(SystemAnalyzer):
             for line in stdout:
                 line = line.strip()
                 if re.search("is not installed", line):
-                    #do nothing
+                    # Do nothing
                     ...
                 elif re.search("contains no files", line):
-                    # do nothing
+                    # Do nothing
                     ...
                 elif line == '':
-                    #do nothing
+                    # Do nothing
                     ...
                 elif line == '/.':
                     files[i] = temp
@@ -87,7 +87,7 @@ class UbuntuAnalyzer(SystemAnalyzer):
                     temp.append(line)
         files[i] = temp
 
-        # remove directories from 'files'
+        # Remove directories from file list
         for file_list in files:
             for file in file_list:
                 split = file.split('/')
@@ -143,7 +143,7 @@ class UbuntuAnalyzer(SystemAnalyzer):
     def get_config_files_for(self, package):
         '''
         Returns a list of file paths to configuration files for the specified package.
-        package -- the pacakge whose configurations we are interested in
+        package -- the package whose configurations we are interested in
         '''
         super().get_config_files_for(package)
         _, stdout, _ = self.ssh_client.exec_command(f"cat /var/lib/dpkg/info/{package}.conffiles")
@@ -187,7 +187,7 @@ class UbuntuAnalyzer(SystemAnalyzer):
         '''
         assert self.install_packages, "No packages yet. Have you run get_packages?"
         logging.info(f"Verifying packages in {mode.name} mode...")
-        # Write prelude, create image.
+        # Write prelude, create image
         with open(os.path.join(self.tempdir, 'Dockerfile'), 'w') as dockerfile:
             dockerfile.write(f"FROM {self.op_sys}:{self.version}\n")
             dockerfile.write(f"ENV DEBIAN_FRONTEND=noninteractive\n")
@@ -196,12 +196,12 @@ class UbuntuAnalyzer(SystemAnalyzer):
         self.image, _ = self.docker_client.images.build(tag=f'verify{self.op_sys}',
                                                         path=self.tempdir)
 
-        # Try installing all of the packages.
+        # Try installing all of the packages
         install_all = "apt-get install -y --allow-downgrades "
         pkg_line, _, unv_line = self._assemble_packages()
         install_all += pkg_line + unv_line
 
-        # Spin up the container and try to install everything.
+        # Spin up the container and try to install everything
         try:
             container = self.docker_client.containers.run(self.image.id, command=install_all,
                                                           detach=True)
@@ -210,7 +210,7 @@ class UbuntuAnalyzer(SystemAnalyzer):
         finally:
             container.remove(force=True)
 
-        # Parse the container's output.
+        # Parse the container's output
         missing_pkgs = re.findall("E: Unable to locate package (.*)\n", output)
         missing_vers = re.findall("' for '(.*)' was not found\n", output)
 
@@ -223,11 +223,11 @@ class UbuntuAnalyzer(SystemAnalyzer):
                           f"{output}")
             return False
 
-        # Report on missing packages.
+        # Report on missing packages
         logging.warning(f"Could not find the following packages: {missing_pkgs}")
         logging.warning(f"Could not find versions for the following packages: {missing_vers}")
 
-        # Fallback code will return whether it could handle missing packages; return this up.
+        # Fallback code will return whether it could handle missing packages; return this up
         return self._run_fallback(missing_pkgs + missing_vers, mode)
 
 
@@ -267,7 +267,7 @@ class UbuntuAnalyzer(SystemAnalyzer):
 
         logging.info(f"Verifying packages after employing fallback...")
 
-        # Write prelude, create image.
+        # Write prelude, create image
         with open(os.path.join(self.tempdir, 'Dockerfile'), 'w') as dockerfile:
             dockerfile.write(f"FROM {self.op_sys}:{self.version}\n")
             dockerfile.write(f"ENV DEBIAN_FRONTEND=noninteractive\n")
@@ -276,12 +276,12 @@ class UbuntuAnalyzer(SystemAnalyzer):
         self.image, _ = self.docker_client.images.build(tag=f'verify{self.op_sys}',
                                                         path=self.tempdir)
 
-        # Try installing all of the packages.
+        # Try installing all of the packages
         install_all = "apt-get install -y --allow-downgrades "
         pkg_line, _, unv_line = self._assemble_packages()
         install_all += pkg_line + unv_line
 
-        # Spin up the container and try to install everything.
+        # Spin up the container and try to install everything
         try:
             container = self.docker_client.containers.run(self.image.id, command=install_all,
                                                           detach=True)
@@ -291,7 +291,7 @@ class UbuntuAnalyzer(SystemAnalyzer):
             container.remove(force=True)
         logging.debug(output)
 
-        # Parse the container's output.
+        # Parse the container's output
         missing_pkgs = re.findall("E: Unable to locate package (.*)\n", output)
         missing_vers = re.findall("' for '(.*)' was not found\n", output)
 
@@ -302,12 +302,12 @@ class UbuntuAnalyzer(SystemAnalyzer):
             logging.error(f"No missing packages or versions found, but there was an error during "
                           f"fallback:\n{output}")
 
-        # Report on missing packages.
+        # Report on missing packages
         logging.warning(f"Could not find the following packages during fallback: {missing_pkgs}")
         logging.warning(f"Could not find versions for the following packages during fallback: "
                         f"{missing_vers}")
 
-        # Now figure out what the versions for everything in unversion are.
+        # Now figure out what the versions for everything in unversion are
         self.dockerize(self.tempdir, verbose=False)
         container = self.docker_client.containers.run(self.image.id,
                                                       command=self.LIST_INSTALLED,

@@ -1,8 +1,10 @@
 '''
-Provides tests to verify that a container can be converted to another container.
+Provides tests to verify that a container can be converted to another container. Uses Centos 7 and
+Ubuntu 20.04.
 
-container_tester is a helper function with the actual function of the tests.
-test_*_container are the actual tests, which specify behaviors for the container_tester function.
+test_*_container specify behaviors for the container_tester function. Basic means try to convert a
+bare-bones container, and assorted means try to install a few arbitrary packages and make sure they
+exist on the container after conversion.
 '''
 
 import configparser

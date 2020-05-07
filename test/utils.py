@@ -1,7 +1,8 @@
 '''
 Provide utils for running tests.
 
-container_tester tries to construct a container out of another container.
+container_tester tries to construct a container out of another container; it's basically a test
+skeleton that can be called with specific information about the test we're trying to run
 '''
 
 import logging
@@ -47,7 +48,7 @@ def container_tester(name, op_sys, host, expected, install_str):
             logging.info(gen.analyzer.all_packages)
             gen.analyzer.filter_packages()
             # All packages should be able to be installed (i.e. can find all packages with proper
-            # versions).
+            # versions)
             all_correct = gen.analyzer.verify_packages(mode=SystemAnalyzer.Mode.dry)
             assert all_correct
 
@@ -72,6 +73,6 @@ def container_tester(name, op_sys, host, expected, install_str):
             base_container.remove(force=True)
             verify_container.remove(force=True)
         except UnboundLocalError:
-            # This just means one or more of these containers didn't get created; it's fine.
+            # This just means one or more of these containers didn't get created; it's fine
             logging.warning("Cleanup didn't need to remove both containers.")
         logging.info(f"Cleaned up {op_sys} successfully.")

@@ -261,6 +261,7 @@ class SystemAnalyzer(ABC):
         pkgs_after_fallback = self.parse_all_pkgs(output)
         logging.debug(f"Installed: {pkgs_after_fallback}")
 
+        # Check which packages were able to be recovered by fallback
         recovered = set()
         still_gone = set()
         for package in missing:
@@ -315,7 +316,7 @@ class SystemAnalyzer(ABC):
                     # Couldn't find the file. This is expected to happen sometimes; just keep going.
                     logging.warning(f"From container: {line}")
                     continue
-                if 'Permission denied' in line: #or 'Input/output error' in line or 'Function not implemented' in line or 'Invalid argument' in line:
+                if 'Permission denied' in line:
                     logging.debug(f"From container: {line}")
                     continue
                 try:
@@ -438,6 +439,7 @@ class SystemAnalyzer(ABC):
         from packages after installation, files modified after installation, files whose differences
         may or may not be due to version mismatches, and files that are not associated with any
         packages.
+        TODO: That's right, we don't use the blocklist at all. See GitHub issue #61.
         '''
         logging.info("Analyzing files installed from packages to determine which ones have been "
                      "modified")
@@ -449,7 +451,7 @@ class SystemAnalyzer(ABC):
         different_files_not_from_pkgs = set()
         seen = set()
 
-        # populate dictionary if empty
+        # Populate the dictionary if it's empty.
         if len(self.packages_files) == 0:
             self.get_file_pkg_assocs()
             logging.info("...done!")
@@ -479,7 +481,7 @@ class SystemAnalyzer(ABC):
                     elif file in shared:
                         modified_files.add(file)
                     else:
-                        #ignore file, it is the same on both vm and container
+                        # Ignore file, it is the same on both vm and container
                         ...
             else:
                 changed_files = self.files_changed_from_package(pkg)
@@ -498,7 +500,7 @@ class SystemAnalyzer(ABC):
                         else:
                             ver_mismatch_files.add(file)
                     else:
-                        #ignore file, it is the same on both vm and container
+                        # Ignore file, it is the same on both vm and container
                         ...
         different_files_not_from_pkgs = (just_cont - seen) | (just_vm - seen) | (shared - seen)
         logging.info("Number of files on only the container not from packages: "
@@ -531,7 +533,7 @@ class SystemAnalyzer(ABC):
         docker_filenames = set()
         vm_filenames = set()
 
-        # Strip trailing slashes from location.
+        # Strip trailing slashes from location
         command = "find . -type f "
         if location == '/':
             if blocklist:
@@ -548,7 +550,7 @@ class SystemAnalyzer(ABC):
                         command += f"! -path '{trimmed}' "
         logging.debug(f"Running command: {'cd ' + location + ' && ' + command}")
 
-        # Analyze VM.
+        # Analyze VM
         _, vm_out, _ = self.ssh_client.exec_command('cd ' + location + ' && ' + command)
         if location == '/':
             for line in vm_out:
@@ -571,7 +573,7 @@ class SystemAnalyzer(ABC):
                             docker_filenames.add(line[1:])
                 else:
                     for line in con_out:
-                        # TODO: selinux seems to break things; ignoring for now.
+                        # TODO: selinux seems to break things; ignoring for now. See #60
                         if ": Permission denied" not in line:
                             docker_filenames.add(line.replace('.', location, 1))
             logging.debug(f"The total number of files in the VM is {len(vm_filenames)}")

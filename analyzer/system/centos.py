@@ -74,10 +74,10 @@ class CentosAnalyzer(SystemAnalyzer):
             for line in stdout:
                 line = line.strip()
                 if re.search("is not installed", line):
-                    #do nothing
+                    # Do nothing
                     ...
                 elif re.search("contains no files", line):
-                    # do nothing
+                    # Do nothing
                     ...
                 elif line == '':
                     files[i] = temp

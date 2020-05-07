@@ -1,5 +1,6 @@
 '''
-What to run when you try to run the package as a program.
+What to run when you try to run the package as a program. Most people will probably want to import
+the analyzer into their own Python program instead of running it like this.
 '''
 
 import logging

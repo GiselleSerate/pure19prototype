@@ -10,6 +10,8 @@ from analyzer import HOST, GeneralAnalyzer, SystemAnalyzer
 
 
 logging.info('Beginning analysis...')
+# HOST reads from the config.ini file. You can set it yourself manually and instead pass:
+# Host(hostname=HOSTNAME, port=PORT, username=USERNAME)
 with GeneralAnalyzer(host=HOST) as kowalski:
     kowalski.analyzer.get_packages()
     kowalski.analyzer.filter_packages()

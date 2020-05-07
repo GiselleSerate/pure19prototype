@@ -117,7 +117,7 @@ class SystemAnalyzer(ABC):
     def get_config_files_for(self, package):
         '''
         Returns a list of file paths to configuration files for the specified package.
-        package -- the pacakge whose configurations we are interested in
+        package -- the package whose configurations we are interested in
         '''
         logging.debug(f"Getting configuration files associated with {package}...")
 
@@ -126,7 +126,8 @@ class SystemAnalyzer(ABC):
         '''
         Removes packages from the list to be installed if they would be installed as a dependency of
         another or if they are already in the base image. Note that we leave them (and their
-        versions) in self.all_packages.
+        versions) in self.all_packages. If we, through dependency analysis, remove a package and get
+        a different version, we put it in self.unversion_packages.
         strict_versioning -- if True, we'll only remove the package if the versions match the base
             image, and we will NOT do dependency analysis.
         '''

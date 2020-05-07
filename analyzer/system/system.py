@@ -314,7 +314,7 @@ class SystemAnalyzer(ABC):
                     continue
                 if 'No such file' in line:
                     # Couldn't find the file. This is expected to happen sometimes; just keep going.
-                    logging.warning(f"From container: {line}")
+                    logging.debug(f"From container: {line}")
                     continue
                 if 'Permission denied' in line:
                     logging.debug(f"From container: {line}")

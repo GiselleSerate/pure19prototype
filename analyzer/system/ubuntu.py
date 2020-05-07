@@ -2,7 +2,6 @@
 UbuntuAnalyzer inherits from SystemAnalyzer and contains methods to analyze Ubuntu/apt systems.
 '''
 
-import itertools
 import logging
 import os
 import re

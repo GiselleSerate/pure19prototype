@@ -60,7 +60,7 @@ class CentosAnalyzer(SystemAnalyzer):
         '''
         files = [[]] * len(pkgs)
         i = 0
-        pkg_strings = group_strings(pkgs, 500)
+        pkg_strings = group_strings(pkgs)
         cmd_strings = []
         for pkg_string in pkg_strings:
             cmd_string = ""
@@ -68,21 +68,27 @@ class CentosAnalyzer(SystemAnalyzer):
                 cmd_string += f" && echo \"\" && rpm -ql {pkg}"
             cmd_strings.append(cmd_string[15:])
 
+        temp = []
         for cmd in cmd_strings:
             _, stdout, _ = self.ssh_client.exec_command(cmd)
             for line in stdout:
                 line = line.strip()
                 if re.search("is not installed", line):
-                    #do nothing
+                    # Do nothing
                     ...
                 elif re.search("contains no files", line):
-                    # do nothing
+                    # Do nothing
                     ...
                 elif line == '':
+                    files[i] = temp
+                    temp = []
                     i += 1
                 else:
-                    files[i].append(line.strip())
+                    temp.append(line)
+            files[i] = temp
+            temp = []
             i += 1
+
         return files
 
     def files_changed_from_package(self, pkg):
@@ -121,11 +127,7 @@ class CentosAnalyzer(SystemAnalyzer):
         package -- the package to get deps for
         '''
         super().get_dependencies(package)
-        # Issue--/bin/sh doesn't look like a package to me. what do we do about that?
         _, stdout, _ = self.ssh_client.exec_command(f"rpm -qR {package}")
-        # TODO: I have no idea which regex is correct--one takes me from 420 to 256 and
-        # the other goes to 311
-        # deps = [re.split('\W+', line.strip())[0] for line in stdout]
         deps = {line.strip() for line in stdout}
         logging.debug(f"{package} > {deps}")
         return deps

@@ -117,7 +117,7 @@ class SystemAnalyzer(ABC):
     def get_config_files_for(self, package):
         '''
         Returns a list of file paths to configuration files for the specified package.
-        package -- the pacakge whose configurations we are interested in
+        package -- the package whose configurations we are interested in
         '''
         logging.debug(f"Getting configuration files associated with {package}...")
 
@@ -126,7 +126,8 @@ class SystemAnalyzer(ABC):
         '''
         Removes packages from the list to be installed if they would be installed as a dependency of
         another or if they are already in the base image. Note that we leave them (and their
-        versions) in self.all_packages.
+        versions) in self.all_packages. If we, through dependency analysis, remove a package and get
+        a different version, we put it in self.unversion_packages.
         strict_versioning -- if True, we'll only remove the package if the versions match the base
             image, and we will NOT do dependency analysis.
         '''
@@ -260,13 +261,13 @@ class SystemAnalyzer(ABC):
         pkgs_after_fallback = self.parse_all_pkgs(output)
         logging.debug(f"Installed: {pkgs_after_fallback}")
 
+        # Check which packages were able to be recovered by fallback
         recovered = set()
         still_gone = set()
         for package in missing:
             if package in pkgs_after_fallback:
                 # In unversion mode, save the version number we found
-                if mode == self.Mode.unversion:
-                    self.unversion_packages[package] = pkgs_after_fallback[package]
+                self.unversion_packages[package] = pkgs_after_fallback[package]
                 recovered.add(package)
             else:
                 still_gone.add(package)
@@ -313,7 +314,10 @@ class SystemAnalyzer(ABC):
                     continue
                 if 'No such file' in line:
                     # Couldn't find the file. This is expected to happen sometimes; just keep going.
-                    logging.warning(f"From container: {line}")
+                    logging.debug(f"From container: {line}")
+                    continue
+                if 'Permission denied' in line:
+                    logging.debug(f"From container: {line}")
                     continue
                 try:
                     crc, size, file = line.split()
@@ -435,6 +439,7 @@ class SystemAnalyzer(ABC):
         from packages after installation, files modified after installation, files whose differences
         may or may not be due to version mismatches, and files that are not associated with any
         packages.
+        TODO: That's right, we don't use the blocklist at all. See GitHub issue #61.
         '''
         logging.info("Analyzing files installed from packages to determine which ones have been "
                      "modified")
@@ -446,16 +451,20 @@ class SystemAnalyzer(ABC):
         different_files_not_from_pkgs = set()
         seen = set()
 
-        # populate dictionary if empty
+        # Populate the dictionary if it's empty.
         if len(self.packages_files) == 0:
             self.get_file_pkg_assocs()
             logging.info("...done!")
 
-        container = self.docker_client.containers.run(image=self.image.id,
-                                                      command=type(self).LIST_INSTALLED,
-                                                      detach=True)
-        container.wait()
-        output = container.logs().decode()
+        try:
+            container = self.docker_client.containers.run(image=self.image.id,
+                                                          command=type(self).LIST_INSTALLED,
+                                                          detach=True)
+            container.wait()
+            output = container.logs().decode()
+        finally:
+            container.remove(force=True)
+
         # Last element is a blank line; remove it.
         pkg_list = output.split('\n')[:-1]
         cont_pkgs = type(self).parse_all_pkgs(pkg_list)
@@ -472,7 +481,7 @@ class SystemAnalyzer(ABC):
                     elif file in shared:
                         modified_files.add(file)
                     else:
-                        #ignore file, it is the same on both vm and container
+                        # Ignore file, it is the same on both vm and container
                         ...
             else:
                 changed_files = self.files_changed_from_package(pkg)
@@ -491,7 +500,7 @@ class SystemAnalyzer(ABC):
                         else:
                             ver_mismatch_files.add(file)
                     else:
-                        #ignore file, it is the same on both vm and container
+                        # Ignore file, it is the same on both vm and container
                         ...
         different_files_not_from_pkgs = (just_cont - seen) | (just_vm - seen) | (shared - seen)
         logging.info("Number of files on only the container not from packages: "
@@ -524,23 +533,32 @@ class SystemAnalyzer(ABC):
         docker_filenames = set()
         vm_filenames = set()
 
-        # Strip trailing slashes from location.
-        location = location.rstrip('/')
-        regex = re.compile(location.replace('/', r'\/') + r"\/*")
+        # Strip trailing slashes from location
         command = "find . -type f "
+        if location == '/':
+            if blocklist:
+                for place in blocklist:
+                    command += f"! -path '.{place}' "
+        else:
+            location = location.rstrip('/')
+            regex = re.compile(location.replace('/', r'\/') + r"\/*")
 
-        for place in blocklist:
-            if place.startswith(location):
-                trimmed = regex.sub('./', place)
-                command += f"! -path '{trimmed}' "
+            if blocklist:
+                for place in blocklist:
+                    if place.startswith(location):
+                        trimmed = regex.sub('./', place)
+                        command += f"! -path '{trimmed}' "
         logging.debug(f"Running command: {'cd ' + location + ' && ' + command}")
 
-        # Analyze VM.
+        # Analyze VM
         _, vm_out, _ = self.ssh_client.exec_command('cd ' + location + ' && ' + command)
-        for line in vm_out:
-            vm_filenames.add(line.strip().replace('.', location, 1))
+        if location == '/':
+            for line in vm_out:
+                vm_filenames.add(line.strip()[1:])
+        else:
+            for line in vm_out:
+                vm_filenames.add(line.strip().replace('.', location, 1))
 
-        # Analyze container.
         try:
             container = self.docker_client.containers.run(image=self.image.id,
                                                           command="tail -f dev/null",
@@ -549,11 +567,15 @@ class SystemAnalyzer(ABC):
 
             if byteout:
                 con_out = byteout.decode().split('\n')[:-1]
-                for line in con_out:
-                    # TODO: selinux seems to break things; ignoring for now.
-                    if ": Permission denied" not in line:
-                        docker_filenames.add(line.replace('.', location, 1))
-
+                if location == '/':
+                    for line in con_out:
+                        if ": Permission denied" not in line:
+                            docker_filenames.add(line[1:])
+                else:
+                    for line in con_out:
+                        # TODO: selinux seems to break things; ignoring for now. See #60
+                        if ": Permission denied" not in line:
+                            docker_filenames.add(line.replace('.', location, 1))
             logging.debug(f"The total number of files in the VM is {len(vm_filenames)}")
             logging.debug(f"The total number of files in the container is {len(docker_filenames)}")
             return (docker_filenames - vm_filenames,

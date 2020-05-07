@@ -20,7 +20,7 @@ from .system.ubuntu import UbuntuAnalyzer
 
 
 class GeneralAnalyzer:
-    '''Does all analysis of a system that you know nothing about.'''
+    '''Does all analysis of an SSHable system that you know nothing about.'''
     def __init__(self, host=HOST, auto_add=False):
         self.ssh_client = SSHClient()
         if auto_add:
@@ -36,7 +36,7 @@ class GeneralAnalyzer:
 
 
     def __enter__(self):
-        # Explore ~/.ssh/ for keys
+        # Get keys that are already loaded on the investigating system
         self.ssh_client.load_system_host_keys()
         # Establish SSH connection
         try:
@@ -45,7 +45,7 @@ class GeneralAnalyzer:
         except NoValidConnectionsError:
             raise OrigSysConnError("Can't connect to the system you want to replicate. Is it up?")
 
-        # Verify permissions on original system.
+        # Verify permissions on original system
         # NOTE: In future you might be able to extend this to accept sudo-happy users, not just
         # literally root.
         _, stdout, _ = self.ssh_client.exec_command(f'sudo -v')

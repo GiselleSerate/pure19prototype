@@ -1,3 +1,8 @@
+'''
+Runs when analyzer gets imported as a module. Handles various housekeeping items: checks Python
+version, reads config, sets up logging, and manages relational importing.
+'''
+
 import sys
 import configparser
 import os

@@ -243,7 +243,6 @@ class UbuntuAnalyzer(SystemAnalyzer):
         Returns True if the fallback method was sufficient; False otherwise. (Dry mode, thus, is
         always false, since it never does anything.)
         '''
-        ret = False
         logging.info(f"Now running verification fallback in {mode.name} mode...")
 
         if mode == self.Mode.dry:
@@ -298,22 +297,15 @@ class UbuntuAnalyzer(SystemAnalyzer):
 
         if not re.search("E: ", output):
             logging.info("All packages installed properly after fallback.")
-            ret = True
 
         if not missing_pkgs and not missing_vers:
             logging.error(f"No missing packages or versions found, but there was an error during "
                           f"fallback:\n{output}")
-            return False
 
         # Report on missing packages.
         logging.warning(f"Could not find the following packages during fallback: {missing_pkgs}")
         logging.warning(f"Could not find versions for the following packages during fallback: "
                         f"{missing_vers}")
-
-        # In case of errors, we can't check for versions anyway because the image won't build.
-        # Return straightaway.
-        if not ret:
-            return ret
 
         # Now figure out what the versions for everything in unversion are.
         self.dockerize(self.tempdir, verbose=False)
@@ -326,7 +318,8 @@ class UbuntuAnalyzer(SystemAnalyzer):
 
         recovered = set()
         still_gone = set()
-        for package in self.unversion_packages:
+
+        for package in missing:
             if package in pkgs_after_fallback:
                 # Save the version number we found
                 self.unversion_packages[package] = pkgs_after_fallback[package]
